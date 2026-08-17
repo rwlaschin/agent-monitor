@@ -115,7 +115,6 @@
               :process-id="proc.id"
               :name="proc.name"
               :pid="proc.pid"
-              :parent-pid="snapshot.activePid"
               :color="proc.color"
               :history="snapshot.history"
               :stream-ids="proc.streamIds"
@@ -123,7 +122,7 @@
               :total-tokens="proc.totalTokens"
               :status="proc.status"
               :alert-threshold="snapshot.alertThreshold"
-              :is-killing="(proc.pid || snapshot.activePid) ? !!store.killInProgress[`${snapshot.agentId}-${proc.pid || snapshot.activePid}`] : false"
+              :is-killing="proc.pid ? !!store.killInProgress[`${snapshot.agentId}-${proc.pid}`] : false"
               @kill="handleKillSubagent"
             />
           </div>

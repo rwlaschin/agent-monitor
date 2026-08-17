@@ -32,6 +32,21 @@ export class TelemetryEngine {
     this.configPath = configPath;
     this.config = this.loadConfig();
     this.initAgents();
+
+    // Watch config.json for external disk updates
+    if (fs.existsSync(this.configPath)) {
+      try {
+        fs.watch(this.configPath, async (eventType) => {
+          if (eventType === 'change') {
+            const reloaded = this.loadConfig();
+            if (JSON.stringify(reloaded) !== JSON.stringify(this.config)) {
+              this.config = reloaded;
+              await this.initAgents();
+            }
+          }
+        });
+      } catch {}
+    }
   }
 
   private registerKnownProcess(agentId: string, processId: string, name: string, pid: number | null = null): void {
@@ -302,10 +317,12 @@ export class TelemetryEngine {
       if (agent.id === 'claude' && targetFile.includes('/sessions/') && targetFile.endsWith('.json')) {
         try {
           const sData = JSON.parse(fs.readFileSync(targetFile, 'utf-8'));
-          if (sData.name && sData.cwd) {
-            const encodedCwd = sData.cwd.replace(/\//g, '-');
+          const sessionTitle = sData.name || sData.title || sData.summary || sData.sessionName;
+          if (sData.cwd) {
+            const normalizedCwd = sData.cwd.replace(/\/+$/, '');
+            const encodedCwd = normalizedCwd.replace(/\//g, '-');
             const cleanKey = encodedCwd.replace(/^-+/, '');
-            this.registerKnownProcess('claude', `project--${cleanKey}`, sData.name, sData.pid || null);
+            this.registerKnownProcess('claude', `project--${cleanKey}`, sessionTitle || cleanKey, sData.pid || null);
           }
         } catch {}
         return;
@@ -420,7 +437,7 @@ export class TelemetryEngine {
         }
       }
 
-      // Normalize and deduplicate subagents: exactly 1 entry per workspace
+      // Normalize and deduplicate subagents: exactly 1 entry per running process / PID
       const canonicalMap = new Map<string, { id: string; name: string; totalTokens: number; currentRate: number; pid: number | null }>();
 
       for (const [subId, data] of Object.entries(subagentVolume)) {
@@ -436,7 +453,20 @@ export class TelemetryEngine {
           canonicalKey = `project--${raw}`;
         }
 
-        const existing = canonicalMap.get(canonicalKey);
+        // Find existing record either by identical non-null PID or matching canonical key
+        let existing: { id: string; name: string; totalTokens: number; currentRate: number; pid: number | null } | undefined;
+        if (data.pid) {
+          for (const item of canonicalMap.values()) {
+            if (item.pid === data.pid) {
+              existing = item;
+              break;
+            }
+          }
+        }
+        if (!existing) {
+          existing = canonicalMap.get(canonicalKey);
+        }
+
         if (!existing) {
           canonicalMap.set(canonicalKey, {
             id: canonicalKey,
@@ -448,10 +478,21 @@ export class TelemetryEngine {
         } else {
           existing.totalTokens += data.totalTokens;
           existing.currentRate += data.currentRate;
-          const isGeneric = !existing.name || existing.name === canonicalKey || existing.name === 'Work' || existing.name.startsWith('project-');
-          if (data.name && isGeneric) {
+
+          // Pick the more descriptive and specific title
+          const isExistingGeneric = !existing.name || existing.name === existing.id || existing.name === 'Work' || existing.name === 'mac' || existing.name.startsWith('project-');
+          const isDataBetter = data.name && data.name !== data.id && (isExistingGeneric || data.name.length > existing.name.length);
+          if (isDataBetter) {
             existing.name = data.name;
           }
+
+          // Prefer the deeper/more specific workspace path ID
+          if (canonicalKey.length > existing.id.length) {
+            canonicalMap.delete(existing.id);
+            existing.id = canonicalKey;
+            canonicalMap.set(canonicalKey, existing);
+          }
+
           if (data.pid && !existing.pid) {
             existing.pid = data.pid;
           }
@@ -460,6 +501,7 @@ export class TelemetryEngine {
 
       const PROCESS_PALETTE = ['#ec4899', '#f59e0b', '#10b981', '#8b5cf6', '#06b6d4', '#3b82f6', '#f97316', '#14b8a6', '#e11d48'];
       const sortedSubs = Array.from(canonicalMap.values())
+        .filter(sub => sub.pid !== null || sub.currentRate > 0)
         .sort((a, b) => b.totalTokens - a.totalTokens)
         .map((sub, idx) => ({
           id: sub.id,

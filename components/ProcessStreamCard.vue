@@ -106,7 +106,6 @@ const props = withDefaults(defineProps<{
   localMax?: number;
   totalTokens?: number;
   pid?: number | null;
-  parentPid?: number | null;
   status?: 'active' | 'idle' | 'stopped';
   alertThreshold?: number;
   isKilling?: boolean;
@@ -118,7 +117,7 @@ const props = withDefaults(defineProps<{
   alertThreshold: 15000
 });
 
-const effectivePid = computed(() => props.pid || props.parentPid || null);
+const effectivePid = computed(() => props.pid || null);
 
 const cleanDisplayName = computed(() => {
   let display = props.name || props.processId || '';

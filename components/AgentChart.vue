@@ -329,28 +329,21 @@ const renderChart = () => {
   ctx.closePath();
 
   const isTotalDimmed = isFocusing && focusedLayerId.value !== 'total';
-  const areaAlpha = isTotalDimmed ? 0.03 : (layers.length > 0 ? 0.12 : 0.25);
+  const areaAlpha = isTotalDimmed ? 0.05 : 0.35;
   const gradient = ctx.createLinearGradient(0, paddingTop, 0, paddingTop + chartHeight);
   gradient.addColorStop(0, colorWithAlpha(props.color, areaAlpha));
-  gradient.addColorStop(1, colorWithAlpha(props.color, 0));
+  gradient.addColorStop(0.7, colorWithAlpha(props.color, areaAlpha * 0.35));
+  gradient.addColorStop(1, colorWithAlpha(props.color, 0.01));
   ctx.fillStyle = gradient;
   ctx.fill();
   ctx.restore();
 
-  // 2. Draw Total Swarm Guide Line (Muted if subagents exist, Bold if focused or standalone)
+  // 2. Draw Total Swarm Guide Line (Bright, Clear & High Visibility)
   ctx.save();
-  if (layers.length > 0) {
-    if (focusedLayerId.value === 'total') {
-      ctx.strokeStyle = props.color;
-      ctx.lineWidth = 2.5;
-    } else {
-      ctx.strokeStyle = colorWithAlpha(props.color, isTotalDimmed ? 0.15 : 0.4);
-      ctx.lineWidth = 1;
-      ctx.setLineDash([3, 3]);
-    }
-  } else {
-    ctx.strokeStyle = props.color;
-    ctx.lineWidth = 2;
+  ctx.strokeStyle = colorWithAlpha(props.color, isTotalDimmed ? 0.25 : 0.9);
+  ctx.lineWidth = focusedLayerId.value === 'total' ? 2.5 : (layers.length > 0 ? 1.5 : 2.0);
+  if (layers.length > 0 && focusedLayerId.value !== 'total') {
+    ctx.setLineDash([4, 4]);
   }
   ctx.beginPath();
   ctx.moveTo(totalPoints[0].x, totalPoints[0].y);
@@ -360,7 +353,7 @@ const renderChart = () => {
   ctx.stroke();
   ctx.restore();
 
-  // 3. Draw Independent Subagent Curves ON TOP from Baseline y=0
+  // 3. Draw Independent Subagent Curves from Baseline y=0
   if (layers.length > 0) {
     for (const layer of layers) {
       const layerPoints: { x: number; y: number; val: number }[] = [];
@@ -370,13 +363,6 @@ const renderChart = () => {
 
         if (layer.id === 'main') {
           sliceTokens = b.mainTokens || 0;
-        } else if (layer.id === 'others') {
-          const top3Ids = new Set(layers.filter(l => l.id !== 'others' && l.id !== 'main').map(l => l.id));
-          if (b.subagentTokens) {
-            for (const [subId, data] of Object.entries(b.subagentTokens)) {
-              if (!top3Ids.has(subId)) sliceTokens += data.tokens;
-            }
-          }
         } else {
           sliceTokens = b.subagentTokens?.[layer.id]?.tokens || 0;
         }
@@ -392,17 +378,21 @@ const renderChart = () => {
 
       ctx.save();
       if (isThisLayerFocused) {
-        // Fill area under the focused curve
+        // Fill area under the focused curve with rich gradient
         ctx.beginPath();
         ctx.moveTo(layerPoints[0].x, paddingTop + chartHeight);
         for (const p of layerPoints) ctx.lineTo(p.x, p.y);
         ctx.lineTo(layerPoints[layerPoints.length - 1].x, paddingTop + chartHeight);
         ctx.closePath();
-        ctx.fillStyle = colorWithAlpha(layer.color, 0.25);
+        const layerGrad = ctx.createLinearGradient(0, paddingTop, 0, paddingTop + chartHeight);
+        layerGrad.addColorStop(0, colorWithAlpha(layer.color, 0.4));
+        layerGrad.addColorStop(0.7, colorWithAlpha(layer.color, 0.15));
+        layerGrad.addColorStop(1, colorWithAlpha(layer.color, 0.01));
+        ctx.fillStyle = layerGrad;
         ctx.fill();
 
         ctx.shadowColor = layer.color;
-        ctx.shadowBlur = 8;
+        ctx.shadowBlur = 10;
       }
 
       // Draw Curve
