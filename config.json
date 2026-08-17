@@ -1,0 +1,36 @@
+{
+  "slidingWindowMinutes": 15,
+  "refreshIntervalMs": 500,
+  "agents": [
+    {
+      "id": "antigravity",
+      "name": "Antigravity",
+      "enabled": true,
+      "parser": "jsonl-stream",
+      "path": "~/.gemini/antigravity/brain/",
+      "processName": "antigravity",
+      "color": "#06b6d4",
+      "alertThreshold": 10000
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "enabled": true,
+      "parser": "claude-stream",
+      "path": "~/.claude/",
+      "processName": "claude",
+      "color": "#ec4899",
+      "alertThreshold": 10000
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "enabled": false,
+      "parser": "regex-log",
+      "path": "~/.ollama/logs/server.log",
+      "processName": "ollama",
+      "color": "#10b981",
+      "alertThreshold": 10000
+    }
+  ]
+}

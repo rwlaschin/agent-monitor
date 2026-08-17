@@ -1,0 +1,54 @@
+version: "0.5"
+
+# Process Compose configuration for Agent Monitor Swarm
+# Launch Web UI: process-compose --port 9999 (or npm run pc)
+
+processes:
+  # =========================================================================
+  # UI & TELEMETRY ENGINE (DEV & PRODUCTION)
+  # =========================================================================
+  dashboard-dev:
+    command: "npx nuxt dev --host 0.0.0.0 --port 5500"
+    working_dir: "."
+    namespace: "ui"
+    description: "Development Mode (Live HMR on http://0.0.0.0:5500)"
+    environment:
+      - NUXT_TELEMETRY_DISABLED=1
+      - PORT=5500
+      - HOST=0.0.0.0
+      - NITRO_PORT=5500
+      - NITRO_HOST=0.0.0.0
+    availability:
+      restart: "no"
+
+  dashboard-prod:
+    command: "PORT=5501 HOST=0.0.0.0 node .output/server/index.mjs"
+    working_dir: "."
+    namespace: "ui"
+    description: "Production Mode (Built SSR Server on http://0.0.0.0:5501)"
+    disabled: true
+    environment:
+      - PORT=5501
+      - HOST=0.0.0.0
+      - NITRO_PORT=5501
+      - NITRO_HOST=0.0.0.0
+    availability:
+      restart: "on_failure"
+      backoff_seconds: 3
+
+  # =========================================================================
+  # OPTIONAL AGENT RUNNERS & BACKENDS
+  # =========================================================================
+  ollama-backend:
+    command: "ollama serve"
+    namespace: "backends"
+    description: "Local Ollama LLM Inference Server"
+    disabled: true
+    availability:
+      restart: "on_failure"
+
+  test-log-generator:
+    command: "node -e 'setInterval(() => console.log(JSON.stringify({timestamp: new Date().toISOString(), type: \"heartbeat\"})), 5000)'"
+    namespace: "dev-tools"
+    description: "Sample background log heartbeat generator"
+    disabled: true
