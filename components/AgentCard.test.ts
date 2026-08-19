@@ -19,7 +19,7 @@ describe('AgentCard', () => {
     subagents: []
   };
 
-  it('renders agent name, PID, metrics, and emits emergency stop event on click', async () => {
+  it('renders agent name, metrics, and emits emergency stop event on click', async () => {
     const wrapper = mount(AgentCard, {
       props: {
         snapshot: mockSnapshot,
@@ -35,7 +35,6 @@ describe('AgentCard', () => {
     });
 
     expect(wrapper.text()).toContain('Claude Code');
-    expect(wrapper.text()).toContain('PID: 4892');
     expect(wrapper.text()).toContain('4,200');
     expect(wrapper.text()).toContain('11,400');
 
@@ -98,29 +97,6 @@ describe('AgentCard', () => {
     expect(wrapper.emitted('updateColor')).toBeTruthy();
     expect(wrapper.emitted('updateColor')![0][0]).toBe('claude');
     expect(wrapper.emitted('updateColor')![0][1]).toBe('#10b981');
-  });
-
-  it('opens process diagnostics popup when clicking status badge', async () => {
-    const wrapper = mount(AgentCard, {
-      props: {
-        snapshot: mockSnapshot,
-        isKilling: false
-      },
-      global: {
-        stubs: {
-          NuxtLink: true,
-          AgentChart: true,
-          SubagentTree: true
-        }
-      }
-    });
-
-    const statusBtn = wrapper.find('button[title="Click to view process telemetry diagnostics"]');
-    expect(statusBtn.exists()).toBe(true);
-
-    await statusBtn.trigger('click');
-    expect(wrapper.text()).toContain('Process Diagnostics');
-    expect(wrapper.text()).toContain('Active PID:');
   });
 
   it('opens alert threshold popover and saves updated threshold', async () => {

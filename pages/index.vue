@@ -14,19 +14,26 @@
       </div>
 
       <div class="bg-white dark:bg-zinc-950 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800/80 shadow-sm">
-        <span class="text-xs text-zinc-500 uppercase tracking-wider block">Monitored Agents</span>
-        <span class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-          {{ store.snapshots.length }}
+        <span class="text-xs text-zinc-500 uppercase tracking-wider block">Peak Velocity (15m Max)</span>
+        <span class="text-2xl font-bold text-amber-500 dark:text-amber-400">
+          {{ peakBurnRate.toLocaleString() }}
         </span>
-        <span class="text-xs text-zinc-400"> hosts configured</span>
+        <span class="text-xs text-zinc-400"> max tok/min</span>
       </div>
 
       <div class="bg-white dark:bg-zinc-950 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800/80 shadow-sm">
-        <span class="text-xs text-zinc-500 uppercase tracking-wider block">Active Processes</span>
-        <span class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-          {{ activeProcessCount }}
-        </span>
-        <span class="text-xs text-zinc-400"> currently running</span>
+        <span class="text-xs text-zinc-500 uppercase tracking-wider block">Agents & Active Processes</span>
+        <div class="flex items-baseline gap-1.5 mt-0.5">
+          <span class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+            {{ store.snapshots.length }}
+          </span>
+          <span class="text-xs text-zinc-400">hosts</span>
+          <span class="text-zinc-400 dark:text-zinc-600 font-bold mx-1">/</span>
+          <span class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+            {{ activeProcessCount }}
+          </span>
+          <span class="text-xs text-zinc-400">active</span>
+        </div>
       </div>
     </div>
 
@@ -95,8 +102,21 @@ const totalBurnRate = computed(() => {
   return store.snapshots.reduce((sum, s) => sum + s.currentRate, 0);
 });
 
+const peakBurnRate = computed(() => {
+  return store.snapshots.reduce((sum, s) => sum + s.localMax, 0);
+});
+
 const activeProcessCount = computed(() => {
-  return store.snapshots.filter(s => s.status !== 'stopped').length;
+  let count = 0;
+  for (const s of store.snapshots) {
+    if (s.status !== 'stopped' && (s.activePid || s.currentRate > 0)) {
+      count++;
+    }
+    if (s.subagents) {
+      count += s.subagents.filter(sub => sub.pid !== null || sub.currentRate > 0).length;
+    }
+  }
+  return count;
 });
 
 const handleDragStart = (e: DragEvent, agentId: string) => {

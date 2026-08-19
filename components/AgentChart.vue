@@ -150,46 +150,65 @@ const topProcessLayers = computed(() => {
   const buckets = props.history || [];
   const activeSubs = props.subagents || [];
 
-  const subagentTotals: Record<string, { id: string; name: string; color: string; totalTokens: number; currentRate: number }> = {};
+  const subagentTotals = new Map<string, { id: string; name: string; color: string; totalTokens: number; currentRate: number }>();
   const latestBucket = buckets.length > 0 ? buckets[buckets.length - 1] : null;
+
+  const getCanonicalKey = (id: string, name: string) => {
+    const cleanId = (id || '').replace(/^project-+/i, '').trim();
+    const cleanName = (name || '').trim();
+    return cleanName && cleanName !== cleanId ? cleanName : cleanId;
+  };
 
   // Initialize from known subagents
   for (const sub of activeSubs) {
-    subagentTotals[sub.id] = {
-      id: sub.id,
-      name: sub.name || sub.id,
-      color: sub.color || '',
-      totalTokens: sub.totalTokens || 0,
-      currentRate: sub.currentRate || 0
-    };
+    const key = getCanonicalKey(sub.id, sub.name);
+    const existing = subagentTotals.get(key);
+    if (existing) {
+      existing.totalTokens += (sub.totalTokens || 0);
+      existing.currentRate += (sub.currentRate || 0);
+      if (sub.color && !existing.color) existing.color = sub.color;
+    } else {
+      subagentTotals.set(key, {
+        id: sub.id,
+        name: sub.name || sub.id,
+        color: sub.color || '',
+        totalTokens: sub.totalTokens || 0,
+        currentRate: sub.currentRate || 0
+      });
+    }
   }
 
   // Aggregate from 15m history buckets
   for (const bucket of buckets) {
     if (!bucket.subagentTokens) continue;
     for (const [subId, data] of Object.entries(bucket.subagentTokens)) {
-      if (!subagentTotals[subId]) {
-        subagentTotals[subId] = {
+      const key = getCanonicalKey(subId, data.name || subId);
+      let existing = subagentTotals.get(key);
+      if (!existing) {
+        existing = {
           id: subId,
           name: data.name || subId,
           color: '',
           totalTokens: 0,
           currentRate: 0
         };
+        subagentTotals.set(key, existing);
       }
-      subagentTotals[subId].totalTokens += data.tokens;
+      existing.totalTokens += data.tokens;
     }
   }
 
   if (latestBucket && latestBucket.subagentTokens) {
     for (const [subId, data] of Object.entries(latestBucket.subagentTokens)) {
-      if (subagentTotals[subId]) {
-        subagentTotals[subId].currentRate = data.tokens;
+      const key = getCanonicalKey(subId, data.name || subId);
+      const existing = subagentTotals.get(key);
+      if (existing) {
+        existing.currentRate = data.tokens;
       }
     }
   }
 
-  const sortedSubagents = Object.values(subagentTotals).sort((a, b) => (b.currentRate || b.totalTokens) - (a.currentRate || a.totalTokens));
+  const sortedSubagents = Array.from(subagentTotals.values()).sort((a, b) => (b.currentRate || b.totalTokens) - (a.currentRate || a.totalTokens));
   if (sortedSubagents.length === 0) return [];
 
   const result: { id: string; name: string; color: string; totalTokens: number; currentRate: number }[] = [];
@@ -590,18 +609,27 @@ const handleMouseLeave = () => {
   renderChart();
 };
 
+const handleVisibilityChange = () => {
+  if (typeof document !== 'undefined' && !document.hidden) {
+    renderChart();
+  }
+};
+
 watch(() => props.history, () => {
+  if (typeof document !== 'undefined' && document.hidden) return;
   if (animationFrameId) cancelAnimationFrame(animationFrameId);
   animationFrameId = requestAnimationFrame(renderChart);
-}, { deep: true });
+});
 
 onMounted(() => {
   renderChart();
   window.addEventListener('resize', renderChart);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
 onBeforeUnmount(() => {
   if (animationFrameId) cancelAnimationFrame(animationFrameId);
   window.removeEventListener('resize', renderChart);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 </script>

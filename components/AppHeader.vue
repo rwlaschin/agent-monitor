@@ -33,8 +33,10 @@
         </button>
       </div>
 
-      <!-- Right Controls: Theme Toggle & Settings Link -->
+      <!-- Right Controls: Provider Health, Theme Toggle & Settings Link -->
       <div class="flex items-center space-x-2">
+        <ProviderStatusBadge />
+
         <button 
           @click="toggleColorMode" 
           class="p-2 rounded-lg text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
@@ -61,10 +63,11 @@ import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { Activity, Sun, Moon, Settings, Square, Columns2, Columns3, Columns4 } from 'lucide-vue-next';
 import { useTelemetryStore } from '~/stores/telemetryStore';
+import ProviderStatusBadge from '~/components/ProviderStatusBadge.vue';
 
 const store = useTelemetryStore();
-const route = useRoute();
-const colorMode = useColorMode();
+const route = typeof useRoute !== 'undefined' ? useRoute() : { path: '/' };
+const colorMode = typeof useColorMode !== 'undefined' ? useColorMode() : { value: 'dark', preference: 'dark' };
 
 const isOverviewPage = computed(() => !route || !route.path || route.path === '/');
 

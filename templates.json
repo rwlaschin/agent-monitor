@@ -1,0 +1,62 @@
+[
+  {
+    "id": "claude",
+    "name": "Claude Code",
+    "path": "~/.claude/",
+    "parser": "claude-stream",
+    "processName": "claude",
+    "color": "#ec4899",
+    "alertThreshold": 10000,
+    "statusUrl": "https://status.claude.com"
+  },
+  {
+    "id": "codegpt",
+    "name": "CodeGPT",
+    "path": "~/.codegpt/",
+    "parser": "sqlite-db",
+    "processName": "codegpt",
+    "color": "#10b981",
+    "alertThreshold": 15000,
+    "statusUrl": "https://status.openai.com"
+  },
+  {
+    "id": "antigravity",
+    "name": "Antigravity",
+    "path": "~/.gemini/antigravity/brain/",
+    "parser": "jsonl-stream",
+    "processName": "antigravity",
+    "color": "#06b6d4",
+    "alertThreshold": 10000,
+    "statusUrl": "https://status.cloud.google.com"
+  },
+  {
+    "id": "ollama",
+    "name": "Ollama",
+    "path": "~/.ollama/logs/server.log",
+    "parser": "regex-log",
+    "processName": "ollama",
+    "color": "#10b981",
+    "alertThreshold": 10000,
+    "statusUrl": "http://localhost:11434"
+  },
+  {
+    "id": "aider",
+    "name": "Aider",
+    "path": "~/.aider.chat.history.md",
+    "parser": "regex-log",
+    "processName": "aider",
+    "color": "#8b5cf6",
+    "alertThreshold": 10000,
+    "statusUrl": "https://status.openai.com"
+  },
+  {
+    "id": "continue",
+    "name": "Continue.dev",
+    "path": "~/.continue/sessions/",
+    "parser": "jsonl-stream",
+    "processName": "continue",
+    "color": "#3b82f6",
+    "alertThreshold": 10000,
+    "statusUrl": "https://status.continue.dev"
+  }
+]

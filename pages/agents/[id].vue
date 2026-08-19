@@ -24,23 +24,51 @@
           </div>
         </div>
 
-        <!-- Subdued Secondary Action Button -->
-        <button 
-          @click="handleEmergencyStop"
-          :disabled="snapshot.status === 'stopped' || isKilling"
-          :class="[
-            'px-3 py-1.5 rounded-lg font-mono text-xs font-semibold flex items-center gap-1.5 transition-all self-start sm:self-auto cursor-pointer border',
-            snapshot.status === 'stopped'
-              ? 'opacity-40 cursor-not-allowed bg-zinc-100 dark:bg-zinc-800 border-transparent text-zinc-400 dark:text-zinc-500'
-              : snapshot.isAlertBreached
-                ? 'bg-red-500 text-white border-red-500 hover:bg-red-600 shadow-md shadow-red-500/20'
-                : 'bg-zinc-100/80 dark:bg-zinc-900/80 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-red-500 dark:hover:text-red-400 hover:border-red-500/40 hover:bg-red-500/10 active:scale-95'
-          ]"
-          :title="snapshot.activePid ? `Terminate process PID ${snapshot.activePid}` : 'Process not running'"
-        >
-          <Square class="w-3 h-3 fill-current" />
-          <span>{{ isKilling ? 'Stopping...' : 'Stop Agent' }}</span>
-        </button>
+        <div class="flex items-center gap-3 self-start sm:self-auto flex-wrap">
+          <!-- Upstream Provider Health Card -->
+          <a
+            v-if="agentProvider"
+            :href="agentProvider.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-violet-500/50 transition-colors"
+            :title="`Open official status page: ${agentProvider.url}`"
+          >
+            <span 
+              :class="[
+                'w-2 h-2 rounded-full shrink-0',
+                agentProvider.status === 'operational' ? 'bg-emerald-500' :
+                agentProvider.status === 'degraded' ? 'bg-amber-500' :
+                agentProvider.status === 'major_outage' ? 'bg-red-500' : 'bg-zinc-400'
+              ]"
+            ></span>
+            <div class="text-left">
+              <div class="font-bold text-[11px] text-zinc-900 dark:text-zinc-100 flex items-center gap-1">
+                <span>{{ agentProvider.name }}</span>
+                <ExternalLink class="w-2.5 h-2.5 text-zinc-400" />
+              </div>
+              <div class="text-[10px] text-zinc-400">{{ agentProvider.description }}</div>
+            </div>
+          </a>
+
+          <!-- Subdued Secondary Action Button -->
+          <button 
+            @click="handleEmergencyStop"
+            :disabled="snapshot.status === 'stopped' || isKilling"
+            :class="[
+              'px-3 py-1.5 rounded-lg font-mono text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer border',
+              snapshot.status === 'stopped'
+                ? 'opacity-40 cursor-not-allowed bg-zinc-100 dark:bg-zinc-800 border-transparent text-zinc-400 dark:text-zinc-500'
+                : snapshot.isAlertBreached
+                  ? 'bg-red-500 text-white border-red-500 hover:bg-red-600 shadow-md shadow-red-500/20'
+                  : 'bg-zinc-100/80 dark:bg-zinc-900/80 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-red-500 dark:hover:text-red-400 hover:border-red-500/40 hover:bg-red-500/10 active:scale-95'
+            ]"
+            :title="snapshot.activePid ? `Terminate process PID ${snapshot.activePid}` : 'Process not running'"
+          >
+            <Square class="w-3 h-3 fill-current" />
+            <span>{{ isKilling ? 'Stopping...' : 'Stop Agent' }}</span>
+          </button>
+        </div>
       </div>
 
       <!-- Metrics Row -->
@@ -135,35 +163,35 @@
         ref="dockRef"
         :style="dockStyle"
         :class="[
-          'fixed w-80 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-xl rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xl z-40 font-mono text-xs hidden md:block select-none',
+          'fixed w-72 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-xl rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xl z-40 font-mono text-xs hidden md:block select-none',
           isDockDragging ? 'cursor-grabbing ring-2 ring-violet-500/50 shadow-violet-500/10' : ''
         ]"
       >
         <!-- Draggable Header -->
         <div 
           @mousedown="startDockDrag"
-          class="flex items-center justify-between p-3 text-zinc-500 pb-2 border-b border-zinc-200 dark:border-zinc-800 cursor-grab active:cursor-grabbing hover:bg-zinc-50 dark:hover:bg-zinc-900/50 rounded-t-xl select-none"
+          class="flex items-center justify-between px-2.5 py-1.5 text-zinc-500 border-b border-zinc-200 dark:border-zinc-800 cursor-grab active:cursor-grabbing hover:bg-zinc-50 dark:hover:bg-zinc-900/50 rounded-t-xl select-none"
           title="Drag to reposition Fleet Activity dock anywhere"
         >
           <div class="flex items-center gap-1.5">
-            <GripVertical class="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-600" />
+            <GripVertical class="w-3 h-3 text-zinc-400 dark:text-zinc-600" />
             <Activity class="w-3 h-3 text-violet-500" />
-            <span class="font-bold text-[10px] uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+            <span class="font-bold text-[9px] uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
               Fleet Activity ({{ otherSnapshots.length }})
             </span>
           </div>
 
-          <div class="flex items-center gap-1">
+          <div class="flex items-center gap-0.5">
             <button 
               @click.stop="isDockMinimized = !isDockMinimized" 
-              class="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-xs px-1.5 py-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+              class="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-[10px] px-1 py-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded transition-colors cursor-pointer"
               :title="isDockMinimized ? 'Expand dock' : 'Minimize dock'"
             >
               {{ isDockMinimized ? '▲' : '▼' }}
             </button>
             <button 
               @click.stop="isDockClosed = true" 
-              class="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-xs px-1.5 py-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+              class="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-[10px] px-1 py-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded transition-colors cursor-pointer"
               title="Close dock"
             >
               ✕
@@ -172,22 +200,22 @@
         </div>
 
         <!-- Expandable Body with Sparklines -->
-        <div v-if="!isDockMinimized" class="p-3 pt-2">
-          <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+        <div v-if="!isDockMinimized" class="p-2 pt-1.5">
+          <div class="space-y-0.5 max-h-44 overflow-y-auto pr-0.5">
             <NuxtLink 
               v-for="other in otherSnapshots" 
               :key="other.agentId"
               :to="`/agents/${other.agentId}`"
-              class="flex items-center justify-between text-[11px] p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 group block"
+              class="flex items-center justify-between text-[11px] py-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 group block"
             >
-              <div class="flex items-center space-x-2 truncate w-24">
-                <span class="w-2 h-2 rounded-full shrink-0 shadow-sm" :style="{ backgroundColor: other.color }"></span>
-                <span class="truncate text-zinc-800 dark:text-zinc-200 group-hover:text-white font-medium text-[11px]">{{ other.agentName }}</span>
+              <div class="flex items-center space-x-1.5 truncate w-24">
+                <span class="w-1.5 h-1.5 rounded-full shrink-0 shadow-sm" :style="{ backgroundColor: other.color }"></span>
+                <span class="truncate text-zinc-800 dark:text-zinc-200 group-hover:text-white font-medium text-[10px]">{{ other.agentName }}</span>
               </div>
 
               <!-- Mini Sparkline Path -->
-              <div class="w-24 h-4 mx-2 flex items-center shrink-0">
-                <svg class="w-full h-full overflow-visible" viewBox="0 0 96 16">
+              <div class="w-24 h-3.5 mx-1.5 flex items-center shrink-0">
+                <svg class="w-full h-full overflow-visible" viewBox="0 0 96 14">
                   <path 
                     :d="getSparklineSvgPath(other.history)" 
                     fill="none" 
@@ -200,16 +228,15 @@
               </div>
 
               <div class="text-right shrink-0">
-                <span class="font-bold text-zinc-900 dark:text-zinc-100 block text-[11px]">
+                <span class="font-bold text-zinc-900 dark:text-zinc-100 block text-[10px]">
                   {{ other.currentRate > 1000 ? `${(other.currentRate / 1000).toFixed(1)}k` : other.currentRate }}
                 </span>
-                <span class="text-[8px] text-zinc-400">tok/m</span>
               </div>
             </NuxtLink>
           </div>
 
-          <div class="mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800/60 text-right">
-            <NuxtLink to="/" class="hover:text-zinc-900 dark:hover:text-zinc-100 text-[10px] text-zinc-400 inline-flex items-center gap-1 transition-colors">
+          <div class="mt-1.5 pt-1 border-t border-zinc-100 dark:border-zinc-800/60 text-right">
+            <NuxtLink to="/" class="hover:text-zinc-900 dark:hover:text-zinc-100 text-[9px] text-zinc-400 inline-flex items-center gap-1 transition-colors">
               All Agents Overview &rarr;
             </NuxtLink>
           </div>
@@ -230,8 +257,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { Square, Activity, GripVertical } from 'lucide-vue-next';
+import { Square, Activity, GripVertical, ExternalLink } from 'lucide-vue-next';
 import { useTelemetryStore } from '~/stores/telemetryStore';
+import { useProviderHealth } from '~/composables/useProviderHealth';
 import BreadcrumbNav from '~/components/BreadcrumbNav.vue';
 import AgentChart from '~/components/AgentChart.vue';
 import ProcessStreamCard from '~/components/ProcessStreamCard.vue';
@@ -239,9 +267,11 @@ import type { MinuteBucket } from '~/server/types/telemetry';
 
 const route = useRoute();
 const store = useTelemetryStore();
+const { getProviderForAgent } = useProviderHealth();
 
 const agentId = computed(() => route.params.id as string);
 const snapshot = computed(() => store.getAgentById(agentId.value));
+const agentProvider = computed(() => snapshot.value ? getProviderForAgent(snapshot.value.agentId, snapshot.value.agentName, snapshot.value.statusUrl) : null);
 
 const otherSnapshots = computed(() => {
   return store.snapshots.filter(s => s.agentId !== agentId.value);

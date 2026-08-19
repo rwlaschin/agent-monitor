@@ -1,4 +1,3 @@
-import chokidar from 'chokidar';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -7,8 +6,9 @@ import { SlidingWindowRingBuffer } from './ringBuffer';
 import { FileTailer } from './tailer';
 import { ClaudeAdapter } from './adapters/claudeAdapter';
 import { AntigravityAdapter } from './adapters/antigravityAdapter';
+import { SqliteAdapter } from './adapters/sqliteAdapter';
 import type { LogAdapter } from './adapters/types';
-import { defaultProcessLookup } from '../api/kill';
+import { processProvider } from './process/factory';
 
 function resolveHome(filepath: string): string {
   if (filepath.startsWith('~')) {
@@ -22,7 +22,7 @@ export class TelemetryEngine {
   private buffers: Map<string, SlidingWindowRingBuffer> = new Map();
   private tailers: Map<string, FileTailer> = new Map();
   private adapters: Map<string, LogAdapter> = new Map();
-  private watchers: Map<string, chokidar.FSWatcher> = new Map();
+  private watchers: Map<string, fs.FSWatcher[]> = new Map();
   private pids: Map<string, number | null> = new Map();
   private lastPidCheck: Map<string, number> = new Map();
   private knownProcesses: Map<string, Map<string, { id: string; name: string; pid: number | null }>> = new Map();
@@ -85,12 +85,14 @@ export class TelemetryEngine {
   }
 
   public async closeWatchers(): Promise<void> {
-    const closePromises: Promise<any>[] = [];
-    for (const [_, watcher] of this.watchers) {
-      closePromises.push(watcher.close());
+    for (const [_, list] of this.watchers) {
+      for (const watcher of list) {
+        try {
+          watcher.close();
+        } catch {}
+      }
     }
     this.watchers.clear();
-    await Promise.allSettled(closePromises);
   }
 
   public async initAgents(): Promise<void> {
@@ -104,12 +106,14 @@ export class TelemetryEngine {
         this.buffers.set(agent.id, new SlidingWindowRingBuffer(this.config.slidingWindowMinutes || 15));
       }
 
-      if (agent.parser === 'json-cache' || agent.parser === 'claude-stream' || agent.id === 'claude') {
+      if (agent.parser === 'sqlite-db') {
+        this.adapters.set(agent.id, new SqliteAdapter());
+      } else if (agent.parser === 'json-cache' || agent.parser === 'claude-stream' || agent.id === 'claude') {
         this.adapters.set(agent.id, new ClaudeAdapter());
       } else if (agent.parser === 'jsonl-stream' && agent.id === 'antigravity') {
         this.adapters.set(agent.id, new AntigravityAdapter());
       } else {
-        this.adapters.set(agent.id, new JsonlAdapter());
+        this.adapters.set(agent.id, new ClaudeAdapter());
       }
 
       this.bootstrapExistingFiles(agent);
@@ -241,6 +245,20 @@ export class TelemetryEngine {
     const resolvedPath = resolveHome(agent.path);
     if (!fs.existsSync(resolvedPath)) return [];
 
+    if (agent.parser === 'sqlite-db') {
+      try {
+        const stats = fs.statSync(resolvedPath);
+        if (stats.isFile()) return [resolvedPath];
+        if (stats.isDirectory()) {
+          const entries = fs.readdirSync(resolvedPath, { withFileTypes: true });
+          return entries
+            .filter(e => e.isFile() && (e.name.endsWith('.db') || e.name.endsWith('.sqlite') || e.name.endsWith('.sqlite3') || e.name.endsWith('.vscdb')))
+            .map(e => path.join(resolvedPath, e.name));
+        }
+      } catch {}
+      return [];
+    }
+
     if (agent.id === 'antigravity') {
       return this.discoverAntigravityFiles(resolvedPath);
     }
@@ -269,41 +287,96 @@ export class TelemetryEngine {
     const resolvedPath = resolveHome(agent.path);
     if (!fs.existsSync(resolvedPath)) return;
 
-    const watcher = chokidar.watch(resolvedPath, {
-      ignoreInitial: true,
-      persistent: true,
-      depth: 4,
-      useFsEvents: true,
-      disableGlobbing: true,
-      ignored: (testPath: string, stats?: fs.Stats) => {
-        if (!testPath) return false;
-        const base = path.basename(testPath);
-        if (base.startsWith('.') && base !== '.claude' && base !== '.gemini' && base !== '.system_generated') {
-          return true;
+    let watchTargets: string[] = [resolvedPath];
+    if (agent.id === 'claude') {
+      try {
+        const stats = fs.statSync(resolvedPath);
+        if (stats.isDirectory()) {
+          const projects = path.join(resolvedPath, 'projects');
+          const sessions = path.join(resolvedPath, 'sessions');
+          const statsCache = path.join(resolvedPath, 'stats-cache.json');
+          watchTargets = [projects, sessions, statsCache].filter(p => fs.existsSync(p));
+          if (watchTargets.length === 0) watchTargets = [resolvedPath];
         }
-        if (base === 'node_modules' || base === '.git' || base === 'cache' || base === 'tmp' || base === 'dist' || base === '.nuxt' || base === '.output') {
-          return true;
-        }
-        if (stats && stats.isFile()) {
-          return !testPath.endsWith('.jsonl') && !testPath.endsWith('.json') && !testPath.endsWith('.log');
-        }
-        return false;
-      }
-    });
+      } catch {}
+    }
 
-    watcher.on('add', (filePath) => this.handleFileChange(agent, filePath));
-    watcher.on('change', (filePath) => this.handleFileChange(agent, filePath));
-    watcher.on('error', () => {
-      // Catch and suppress watch errors
-    });
+    const list: fs.FSWatcher[] = [];
+    for (const target of watchTargets) {
+      try {
+        const stats = fs.statSync(target);
+        const isDir = stats.isDirectory();
 
-    this.watchers.set(agent.id, watcher);
+        // Native Node fs.watch with recursive support (0 external dependencies)
+        const watcher = fs.watch(target, { recursive: isDir }, (_eventType, filename) => {
+          if (!filename) {
+            this.handleFileChange(agent, target);
+            return;
+          }
+
+          const fullPath = isDir ? path.join(target, filename.toString()) : target;
+
+          // Ignore noisy non-log directories quickly by path string
+          if (
+            fullPath.includes('node_modules') ||
+            fullPath.includes('.git') ||
+            fullPath.includes('cache') ||
+            fullPath.includes('tmp') ||
+            fullPath.includes('scratch') ||
+            fullPath.includes('workspaces') ||
+            fullPath.includes('artifacts')
+          ) {
+            return;
+          }
+
+          if (agent.id === 'antigravity' && !fullPath.endsWith('transcript.jsonl')) {
+            return;
+          }
+          if (agent.id === 'claude' && !fullPath.endsWith('.jsonl') && !fullPath.endsWith('.json')) {
+            return;
+          }
+
+          this.handleFileChange(agent, fullPath);
+        });
+
+        watcher.on('error', () => {});
+        list.push(watcher);
+      } catch {}
+    }
+
+    if (list.length > 0) {
+      this.watchers.set(agent.id, list);
+    }
   }
 
   private async handleFileChange(agent: AgentConfig, targetFile: string): Promise<void> {
     try {
       const stats = fs.statSync(targetFile, { throwIfNoEntry: false });
       if (!stats || stats.isDirectory()) return;
+
+      // Handle SQLite database parsing
+      if (
+        agent.parser === 'sqlite-db' || 
+        targetFile.endsWith('.db') || 
+        targetFile.endsWith('.sqlite') || 
+        targetFile.endsWith('.sqlite3') || 
+        targetFile.endsWith('.vscdb') ||
+        targetFile.endsWith('-wal')
+      ) {
+        const adapter = this.adapters.get(agent.id);
+        const buffer = this.buffers.get(agent.id);
+        const actualDbPath = targetFile.replace(/-wal$/i, '');
+        if (adapter && buffer && 'parseDatabase' in adapter) {
+          const frames = await (adapter as SqliteAdapter).parseDatabase(actualDbPath, agent);
+          for (const frame of frames) {
+            if (frame.subagentId) {
+              this.registerKnownProcess(agent.id, frame.subagentId, frame.subagentName || frame.subagentId);
+            }
+            buffer.ingest(frame);
+          }
+        }
+        return;
+      }
 
       // File type filtering
       if (agent.id === 'antigravity' && !targetFile.endsWith('transcript.jsonl')) {
@@ -364,12 +437,21 @@ export class TelemetryEngine {
       const currentRate = buffer ? buffer.getCurrentRate(now) : 0;
       const localMax = buffer ? buffer.getLocalMax(now) : 0;
 
-      // Check PID asynchronously in background without stalling SSE stream (throttled to 5s)
+      // Verify PID liveness via zero-overhead native kernel syscall
       let pid = this.pids.get(agent.id) ?? null;
+      if (pid !== null) {
+        const alive = processProvider.isAlive(pid);
+        if (typeof alive === 'boolean' && !alive) {
+          this.pids.delete(agent.id);
+          pid = null;
+        }
+      }
+
+      // On-demand throttled lookup if PID is unknown and agent is actively burning tokens
       const lastCheck = this.lastPidCheck.get(agent.id) || 0;
-      if (now - lastCheck > 5000 || (currentRate > 0 && pid === null)) {
+      if (pid === null && (currentRate > 0 || now - lastCheck > 15000)) {
         this.lastPidCheck.set(agent.id, now);
-        defaultProcessLookup(agent.processName).then(lookup => {
+        processProvider.lookupPid(agent.processName).then(lookup => {
           if (lookup) this.pids.set(agent.id, lookup.pid);
         }).catch(() => {});
       }
@@ -532,6 +614,7 @@ export class TelemetryEngine {
         totalTokens24h,
         alertThreshold,
         isAlertBreached,
+        statusUrl: agent.statusUrl,
         history,
         subagents: sortedSubs
       });

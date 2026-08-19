@@ -9,15 +9,29 @@ export default defineEventHandler(async (event) => {
 
   const engine = getTelemetryEngine();
   const eventStream = createEventStream(event);
+  const refreshInterval = engine.getConfig().refreshIntervalMs || 500;
+
+  let lastPayload = '';
+
+  // Push immediate initial snapshot on connection
+  try {
+    const initialSnapshots = await engine.getSnapshot();
+    lastPayload = JSON.stringify(initialSnapshots);
+    await eventStream.push(lastPayload);
+  } catch {}
 
   const interval = setInterval(async () => {
     try {
       const snapshots = await engine.getSnapshot();
-      await eventStream.push(JSON.stringify(snapshots));
+      const payload = JSON.stringify(snapshots);
+      if (payload !== lastPayload) {
+        lastPayload = payload;
+        await eventStream.push(payload);
+      }
     } catch {
       clearInterval(interval);
     }
-  }, 500);
+  }, refreshInterval);
 
   eventStream.onClosed(() => {
     clearInterval(interval);

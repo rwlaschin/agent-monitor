@@ -10,7 +10,8 @@
       "path": "~/.gemini/antigravity/brain/",
       "processName": "antigravity",
       "color": "#06b6d4",
-      "alertThreshold": 10000
+      "alertThreshold": 10000,
+      "statusUrl": "https://status.cloud.google.com"
     },
     {
       "id": "claude",
@@ -20,7 +21,8 @@
       "path": "~/.claude/",
       "processName": "claude",
       "color": "#ec4899",
-      "alertThreshold": 10000
+      "alertThreshold": 10000,
+      "statusUrl": "https://status.claude.com"
     },
     {
       "id": "ollama",
@@ -30,7 +32,19 @@
       "path": "~/.ollama/logs/server.log",
       "processName": "ollama",
       "color": "#10b981",
-      "alertThreshold": 10000
+      "alertThreshold": 10000,
+      "statusUrl": "http://localhost:11434"
+    },
+    {
+      "id": "codegpt",
+      "name": "Codegpt",
+      "enabled": true,
+      "parser": "sqlite-db",
+      "path": "~/.codegpt",
+      "processName": "codegpt",
+      "color": "#f97316",
+      "alertThreshold": 15000,
+      "statusUrl": "https://status.openai.com"
     }
   ]
 }

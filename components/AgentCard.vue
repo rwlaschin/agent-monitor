@@ -75,18 +75,24 @@
             </div>
           </div>
 
-          <h3 class="font-bold text-sm text-zinc-900 dark:text-zinc-100 tracking-tight">
-            {{ snapshot.agentName }}
-          </h3>
-          <span 
-            v-if="snapshot.activePid" 
-            class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400"
+          <!-- Agent Name Button Colored with Status -->
+          <NuxtLink 
+            :to="`/agents/${snapshot.agentId}`"
+            :class="[
+              'px-2.5 py-1 rounded-lg text-xs font-bold font-mono tracking-tight transition-all border inline-flex items-center shadow-sm cursor-pointer',
+              snapshot.status === 'active' 
+                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20' :
+              snapshot.status === 'idle' 
+                ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700/60 hover:bg-zinc-200 dark:hover:bg-zinc-700' :
+                'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/20'
+            ]"
+            :title="`Status: ${snapshot.status}${snapshot.activePid ? ' (PID: ' + snapshot.activePid + ')' : ''}`"
           >
-            PID: {{ snapshot.activePid }}
-          </span>
+            {{ snapshot.agentName }}
+          </NuxtLink>
         </div>
 
-        <div class="flex items-center space-x-2 relative">
+        <div class="flex items-center space-x-1.5 relative">
           <!-- Quick Alert Threshold Badge & Floating Popover -->
           <div class="relative popover-container" @click.stop>
             <button 
@@ -164,66 +170,6 @@
               </div>
             </div>
           </div>
-          <!-- Status Indicator Badge & Floating Process Diagnostics Popover -->
-          <div class="relative popover-container" @click.stop>
-            <button 
-              @click="toggleStatusPopover"
-              class="flex items-center space-x-1.5 text-xs font-mono px-2 py-0.5 rounded-md bg-zinc-100/80 dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-600 transition-colors cursor-pointer"
-              title="Click to view process telemetry diagnostics"
-            >
-              <span 
-                :class="[
-                  'w-1.5 h-1.5 rounded-full',
-                  snapshot.status === 'active' ? 'bg-emerald-500 animate-pulse' : 
-                  snapshot.status === 'idle' ? 'bg-zinc-400' : 'bg-red-500'
-                ]"
-              ></span>
-              <span class="capitalize text-zinc-700 dark:text-zinc-300 text-[11px] font-medium">
-                {{ snapshot.status }}
-              </span>
-            </button>
-
-            <!-- Floating Process Diagnostics Popover -->
-            <div 
-              v-if="isShowingStatusInfo" 
-              class="absolute right-0 top-full mt-2 w-64 p-3 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-2xl backdrop-blur-xl z-50 text-xs font-mono"
-            >
-              <div class="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-1.5 mb-2">
-                <span class="font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                  <Activity class="w-3.5 h-3.5 text-emerald-500" />
-                  Process Diagnostics
-                </span>
-                <button @click="isShowingStatusInfo = false" class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">✕</button>
-              </div>
-
-              <div class="space-y-1.5 text-[11px]">
-                <div class="flex justify-between">
-                  <span class="text-zinc-500">Active PID:</span>
-                  <span class="font-bold text-zinc-800 dark:text-zinc-200">{{ snapshot.activePid || 'None (Stopped)' }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-zinc-500">Current State:</span>
-                  <span class="capitalize font-bold text-emerald-500">{{ snapshot.status }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-zinc-500">Live Burn Rate:</span>
-                  <span class="font-bold text-zinc-800 dark:text-zinc-200">{{ snapshot.currentRate.toLocaleString() }} tok/m</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-zinc-500">15m Peak Burn:</span>
-                  <span class="font-bold text-zinc-800 dark:text-zinc-200">{{ snapshot.localMax.toLocaleString() }} tok/m</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-zinc-500">Active Subagents:</span>
-                  <span class="font-bold text-zinc-800 dark:text-zinc-200">{{ snapshot.subagents ? snapshot.subagents.length : 0 }} running</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-zinc-500">24h Total Tokens:</span>
-                  <span class="font-bold text-zinc-800 dark:text-zinc-200">{{ snapshot.totalTokens24h ? snapshot.totalTokens24h.toLocaleString() : '0' }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -293,7 +239,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { Maximize2, Square, Bell, GripVertical, Info, Palette, Activity } from 'lucide-vue-next';
+import { Maximize2, Square, Bell, GripVertical, Info, Palette } from 'lucide-vue-next';
 import type { AgentTelemetrySnapshot } from '~/server/types/telemetry';
 import AgentChart from './AgentChart.vue';
 import HsvColorWheel from './HsvColorWheel.vue';
@@ -314,7 +260,6 @@ const emit = defineEmits<{
 
 const isEditingThreshold = ref(false);
 const isEditingColor = ref(false);
-const isShowingStatusInfo = ref(false);
 const tempThreshold = ref(props.snapshot.alertThreshold);
 
 const agentColor = computed(() => props.snapshot.color || (props.snapshot.agentId === 'claude' ? '#a855f7' : '#06b6d4'));
@@ -376,7 +321,6 @@ const toggleThresholdPopover = () => {
   isEditingThreshold.value = !isEditingThreshold.value;
   if (isEditingThreshold.value) {
     isEditingColor.value = false;
-    isShowingStatusInfo.value = false;
   }
 };
 
@@ -384,15 +328,6 @@ const toggleColorPopover = () => {
   isEditingColor.value = !isEditingColor.value;
   if (isEditingColor.value) {
     isEditingThreshold.value = false;
-    isShowingStatusInfo.value = false;
-  }
-};
-
-const toggleStatusPopover = () => {
-  isShowingStatusInfo.value = !isShowingStatusInfo.value;
-  if (isShowingStatusInfo.value) {
-    isEditingThreshold.value = false;
-    isEditingColor.value = false;
   }
 };
 

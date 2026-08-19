@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import type { AgentTelemetrySnapshot, AppConfig } from '~/server/types/telemetry';
+import { useToast } from '~/composables/useToast';
 
 export const useTelemetryStore = defineStore('telemetry', {
   state: () => ({
@@ -56,7 +57,31 @@ export const useTelemetryStore = defineStore('telemetry', {
       }
 
       this.fetchConfig();
+      this.fetchInitialSnapshots();
       this.connectSSE();
+    },
+
+    async fetchInitialSnapshots() {
+      try {
+        const res = await $fetch<AgentTelemetrySnapshot[]>('/api/telemetry-snapshot');
+        if (Array.isArray(res) && res.length > 0 && this.snapshots.length === 0) {
+          if (this.config && this.config.agents) {
+            const colorMap = new Map(this.config.agents.map(a => [a.id, a.color]));
+            const thresholdMap = new Map(this.config.agents.map(a => [a.id, a.alertThreshold]));
+
+            for (const item of res) {
+              if (colorMap.has(item.agentId) && colorMap.get(item.agentId)) {
+                item.color = colorMap.get(item.agentId)!;
+              }
+              if (thresholdMap.has(item.agentId) && thresholdMap.get(item.agentId) !== undefined) {
+                item.alertThreshold = thresholdMap.get(item.agentId)!;
+                item.isAlertBreached = item.currentRate >= item.alertThreshold;
+              }
+            }
+          }
+          this.snapshots = res;
+        }
+      } catch {}
     },
 
     setProcessOrder(agentId: string, newOrder: string[]) {
@@ -223,8 +248,12 @@ export const useTelemetryStore = defineStore('telemetry', {
           method: 'POST',
           body: { agentId, targetPid }
         });
+        useToast().success(
+          targetPid ? `Subagent PID ${targetPid} terminated` : `Emergency stop dispatched for ${agentId}`,
+          'Process Stopped'
+        );
       } catch (err: any) {
-        alert(err?.data?.statusMessage || 'Failed to stop process');
+        useToast().error(err?.data?.statusMessage || 'Failed to stop process', 'Kill Error');
       } finally {
         this.killInProgress[key] = false;
       }

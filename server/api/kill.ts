@@ -1,44 +1,17 @@
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
 import type { AgentConfig } from '../types/telemetry';
+import { processProvider } from '../utils/process/factory';
+import type { ProcessLookupResult } from '../utils/process/types';
 
-const execAsync = promisify(exec);
-
-export interface ProcessLookupResult {
-  pid: number;
-  comm: string;
-}
-
+export type { ProcessLookupResult };
 export type ProcessLookupFn = (processName: string) => Promise<ProcessLookupResult | null>;
-export type ProcessKillerFn = (pid: number) => boolean;
+export type ProcessKillerFn = (pid: number) => boolean | Promise<boolean>;
 
 export async function defaultProcessLookup(processName: string): Promise<ProcessLookupResult | null> {
-  try {
-    const { stdout: pgrepOutput } = await execAsync(`pgrep -f "${processName}"`, { timeout: 1500 });
-    const pids = pgrepOutput.trim().split('\n').map(p => parseInt(p.trim(), 10)).filter(p => !isNaN(p));
-
-    if (pids.length === 0) return null;
-
-    // Pick the most recent PID that is not the current process
-    const filteredPids = pids.filter(p => p !== process.pid);
-    if (filteredPids.length === 0) return null;
-
-    const targetPid = filteredPids[filteredPids.length - 1];
-    const { stdout: comm } = await execAsync(`ps -p ${targetPid} -o command=`, { timeout: 1500 });
-
-    return { pid: targetPid, comm: comm.trim() };
-  } catch {
-    return null;
-  }
+  return processProvider.lookupPid(processName);
 }
 
-export function defaultProcessKiller(pid: number): boolean {
-  try {
-    process.kill(pid, 'SIGKILL');
-    return true;
-  } catch {
-    return false;
-  }
+export function defaultProcessKiller(pid: number): boolean | Promise<boolean> {
+  return processProvider.kill(pid);
 }
 
 export async function executeKillProcess(

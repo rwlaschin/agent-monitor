@@ -8,7 +8,7 @@ A real-time telemetry monitoring dashboard and emergency kill switch for multi-a
 ## Architecture & Conventions
 
 ### 1. Telemetry Engine (Backend)
-- **Zero Polling:** File watching is 100% kernel event-driven via `chokidar` (`FSEvents` on macOS).
+- **Zero Polling:** File watching is 100% kernel event-driven via native `node:fs` `fs.watch` (`FSEvents` on macOS, `ReadDirectoryChangesW` on Windows).
 - **Byte-Offset Tailing:** `FileTailer` seeks to previous byte offsets and only reads newly appended lines.
 - **Minute Bucketing:** `SlidingWindowRingBuffer` maintains a 15-minute sliding array with $O(1)$ updates and zero memory leaks.
 - **Kill Switch Safety:** `executeKillProcess` verifies PID command names before termination to prevent PID recycling accidents.

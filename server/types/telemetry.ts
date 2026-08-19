@@ -1,4 +1,4 @@
-export type ParserType = 'json-cache' | 'jsonl-stream' | 'regex-log';
+export type ParserType = 'json-cache' | 'jsonl-stream' | 'regex-log' | 'sqlite-db';
 
 export interface AgentConfig {
   id: string;
@@ -9,6 +9,7 @@ export interface AgentConfig {
   processName: string;
   color: string;
   alertThreshold?: number; // tokens/min
+  statusUrl?: string; // e.g. https://status.claude.com/ or https://status.openai.com/
 }
 
 export interface AppConfig {
@@ -49,6 +50,12 @@ export interface AgentTelemetrySnapshot {
   alertThreshold: number;
   isAlertBreached: boolean;
   history: MinuteBucket[]; // 15 rolling minute buckets
+  statusUrl?: string;
+  providerHealth?: {
+    status: 'operational' | 'degraded' | 'major_outage' | 'offline' | 'unknown';
+    description: string;
+    url: string;
+  };
   subagents: Array<{
     id: string;
     name: string;

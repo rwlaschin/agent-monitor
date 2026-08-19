@@ -4,6 +4,7 @@
     <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
       <NuxtPage />
     </main>
+    <ToastContainer />
   </div>
 </template>
 
@@ -11,6 +12,7 @@
 import { onMounted } from 'vue';
 import { useTelemetryStore } from '~/stores/telemetryStore';
 import AppHeader from '~/components/AppHeader.vue';
+import ToastContainer from '~/components/ToastContainer.vue';
 
 const store = useTelemetryStore();
 

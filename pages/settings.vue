@@ -208,30 +208,50 @@
           {{ editingIndex !== null ? 'Edit Monitored Agent' : 'Add Monitored Agent' }}
         </h2>
 
+        <!-- Agent Template Dropdown -->
+        <div class="mb-3">
+          <label class="block text-zinc-500 mb-1 font-semibold">Agent Template / Preset (Dropdown)</label>
+          <div class="relative flex items-center">
+            <select
+              v-model="selectedTemplateId"
+              @change="onTemplateDropdownChange"
+              class="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg pl-3 pr-10 py-2.5 text-zinc-900 dark:text-zinc-100 font-medium appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+            >
+              <option :value="null">-- Select a Template Preset or Enter Custom --</option>
+              <option v-for="tmpl in agentTemplates" :key="tmpl.id" :value="tmpl.id">
+                {{ tmpl.name }} ({{ tmpl.parser }})
+              </option>
+            </select>
+            <ChevronDown class="w-4 h-4 text-zinc-400 dark:text-zinc-500 absolute right-3 pointer-events-none" />
+          </div>
+        </div>
+
         <div class="space-y-3 mb-6">
           <div>
-            <label class="block text-zinc-500 mb-1">Agent Name</label>
-            <input v-model="newAgent.name" placeholder="e.g. Aider / Codex" class="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2" />
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-zinc-500">Agent Display Name</label>
+              <span class="text-[10px] text-zinc-400">e.g. CodeGPT 1, CodeGPT (Personal)</span>
+            </div>
+            <input 
+              v-model="newAgent.name" 
+              placeholder="e.g. CodeGPT - Work" 
+              class="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2 text-zinc-900 dark:text-zinc-100" 
+            />
           </div>
 
           <div>
             <div class="flex items-center justify-between mb-1">
-              <label class="block text-zinc-500">Log Root or File Path</label>
-              <button 
-                type="button"
-                @click="validateModalPath"
-                :disabled="isValidatingModal"
-                class="text-[10px] text-violet-500 hover:text-violet-400 font-semibold flex items-center gap-1 cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw :class="['w-3 h-3', isValidatingModal ? 'animate-spin' : '']" />
-                <span>Test Path</span>
-              </button>
+              <label class="block text-zinc-500">Log Directory or File Path</label>
+              <span v-if="isValidatingModal" class="text-[10px] text-violet-400 flex items-center gap-1">
+                <RefreshCw class="w-3 h-3 animate-spin" />
+                <span>Checking...</span>
+              </span>
             </div>
             <input 
               v-model="newAgent.path" 
               @input="onModalPathChange"
-              placeholder="e.g. ~/.claude/ or ~/.gemini/antigravity/brain/" 
-              class="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2" 
+              placeholder="e.g. ~/.codegpt/ or ~/.claude/ or custom path" 
+              class="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2 text-zinc-900 dark:text-zinc-100 font-mono" 
             />
 
             <!-- Real-Time Modal Validation Banner -->
@@ -241,10 +261,10 @@
                 class="bg-emerald-500/10 border border-emerald-500/20 p-2 rounded text-emerald-500 flex items-start gap-1.5"
               >
                 <CheckCircle2 class="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <div>
-                  <span class="font-bold">Valid directory:</span> {{ modalValidationResult.fileCount }} active stream(s) found.
+                <div class="truncate">
+                  <span class="font-bold">Verified Path:</span> {{ modalValidationResult.fileCount }} active stream file(s) found.
                   <div class="text-[9px] text-emerald-400/80 mt-0.5 truncate">
-                    Sample: {{ modalValidationResult.sampleFiles?.slice(0, 3).join(', ') }}
+                    Files: {{ modalValidationResult.sampleFiles?.slice(0, 3).join(', ') }}
                   </div>
                 </div>
               </div>
@@ -254,7 +274,7 @@
               >
                 <AlertTriangle class="w-3.5 h-3.5 shrink-0 mt-0.5" />
                 <div>
-                  <span class="font-bold">Path exists</span>, but no matching session or log files were detected. (Verify if agent has run).
+                  <span class="font-bold">Directory exists</span>, but no active log files detected yet.
                 </div>
               </div>
               <div 
@@ -263,35 +283,134 @@
               >
                 <XCircle class="w-3.5 h-3.5 shrink-0 mt-0.5" />
                 <div>
-                  <span class="font-bold">Invalid Path:</span> {{ modalValidationResult.error || 'Directory does not exist.' }}
+                  <span class="font-bold">Path Error:</span> {{ modalValidationResult.error || 'Directory does not exist.' }}
                 </div>
               </div>
             </div>
           </div>
 
+          <!-- Status Page / Health Check URL -->
           <div>
-            <label class="block text-zinc-500 mb-1">Log Parser Format</label>
-            <select v-model="newAgent.parser" class="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2">
-              <option value="jsonl-stream">JSONL Stream (Line-delimited JSON)</option>
-              <option value="claude-stream">Claude Code Stream (Projects & Sessions)</option>
-              <option value="json-cache">JSON Cache (Single stat JSON file)</option>
-              <option value="regex-log">Plain Text Log</option>
-            </select>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-zinc-500">Upstream Status Page / Health Check URL</label>
+              <span class="text-[10px] text-zinc-400">e.g. https://status.claude.com/ or https://status.openai.com/</span>
+            </div>
+            <input 
+              v-model="newAgent.statusUrl" 
+              placeholder="e.g. https://status.claude.com or https://status.openai.com or http://localhost:11434" 
+              class="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2 text-zinc-900 dark:text-zinc-100 font-mono text-[11px]" 
+            />
           </div>
 
-          <div>
-            <label class="block text-zinc-500 mb-1">OS Process Name (For Kill Switch)</label>
-            <input v-model="newAgent.processName" placeholder="e.g. claude, antigravity, or python" class="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2" />
-          </div>
-
-          <div class="grid grid-cols-2 gap-2">
+          <!-- Parser & Process Row -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label class="block text-zinc-500 mb-1">Color Accent</label>
-              <input v-model="newAgent.color" type="color" class="w-full h-9 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-1 cursor-pointer" />
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-zinc-500">Log Parser Format</label>
+                <span v-if="modalValidationResult?.detectedParserLabel" class="text-[9px] text-violet-400 font-semibold bg-violet-500/10 px-1 py-0.5 rounded border border-violet-500/20">
+                  Auto: {{ modalValidationResult.detectedParserLabel }}
+                </span>
+              </div>
+              <div class="relative flex items-center">
+                <select 
+                  v-model="newAgent.parser" 
+                  @change="isParserTouched = true"
+                  class="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg pl-3 pr-10 py-2.5 text-zinc-900 dark:text-zinc-100 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+                >
+                  <option value="sqlite-db">SQLite Database (CodeGPT / .db / .sqlite)</option>
+                  <option value="claude-stream">Claude Code Stream (Projects & Sessions)</option>
+                  <option value="jsonl-stream">JSONL Stream (Line-delimited JSON)</option>
+                  <option value="json-cache">JSON Cache (Single stat JSON file)</option>
+                  <option value="regex-log">Plain Text Log</option>
+                </select>
+                <ChevronDown class="w-4 h-4 text-zinc-400 dark:text-zinc-500 absolute right-3 pointer-events-none" />
+              </div>
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-zinc-500">OS Process (Kill Switch)</label>
+                <span class="text-[9px] text-emerald-400 font-semibold bg-emerald-500/10 px-1 py-0.5 rounded border border-emerald-500/20">
+                  {{ newAgent.processName || inferredProcessName }}
+                </span>
+              </div>
+              <input 
+                v-model="newAgent.processName" 
+                list="running-process-list"
+                :placeholder="'Auto: ' + inferredProcessName" 
+                class="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500" 
+              />
+              <datalist id="running-process-list">
+                <option v-for="p in runningProcesses" :key="p.name" :value="p.name" />
+              </datalist>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-zinc-500">Color Accent</label>
+                <button 
+                  type="button" 
+                  @click="randomizeColor"
+                  class="text-[10px] text-violet-500 hover:text-violet-400 flex items-center gap-1 font-semibold cursor-pointer"
+                  title="Generate a random distinct color"
+                >
+                  <Sparkles class="w-3 h-3" />
+                  <span>Randomize</span>
+                </button>
+              </div>
+              <div class="flex items-center gap-2 relative">
+                <!-- Color Swatch Button & HsvColorWheel Popover -->
+                <div class="relative">
+                  <button 
+                    type="button"
+                    @click="isEditingColor = !isEditingColor"
+                    class="w-9 h-9 rounded-lg border border-black/20 dark:border-white/20 shadow-sm shrink-0 hover:scale-105 transition-transform cursor-pointer block"
+                    :style="{ backgroundColor: newAgent.color }"
+                    title="Click to open Color Wheel"
+                  ></button>
+
+                  <!-- Floating HSV Color Wheel Popover -->
+                  <div 
+                    v-if="isEditingColor" 
+                    draggable="false"
+                    @dragstart.stop.prevent
+                    @mousedown.stop
+                    @pointerdown.stop
+                    class="absolute left-0 bottom-full mb-2 w-48 p-3 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-2xl backdrop-blur-xl z-50 text-xs font-mono flex flex-col items-center select-none"
+                  >
+                    <div class="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800/80 pb-1.5 mb-2.5 w-full">
+                      <span class="font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1">
+                        <Palette class="w-3.5 h-3.5 text-violet-500" />
+                        Color Wheel
+                      </span>
+                      <button type="button" @click="isEditingColor = false" class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer">✕</button>
+                    </div>
+
+                    <!-- Circular HSL Color Disc with 5px White Selector Dot -->
+                    <div class="mb-1">
+                      <HsvColorWheel 
+                        :model-value="newAgent.color"
+                        :size="140"
+                        @change="color => newAgent.color = color"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Uppercase Hex Text Input -->
+                <input 
+                  v-model="newAgent.color" 
+                  type="text" 
+                  placeholder="#000000"
+                  class="w-full h-9 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-2.5 text-zinc-900 dark:text-zinc-100 font-mono text-xs uppercase" 
+                />
+              </div>
             </div>
             <div>
-              <label class="block text-zinc-500 mb-1">Alert Threshold</label>
-              <input v-model.number="newAgent.alertThreshold" type="number" step="1000" class="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2" />
+              <label class="block text-zinc-500 mb-1">Alert Threshold (tok/min)</label>
+              <input v-model.number="newAgent.alertThreshold" type="number" step="1000" class="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2 text-zinc-900 dark:text-zinc-100 h-9" />
             </div>
           </div>
         </div>
@@ -308,13 +427,45 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue';
-import { Plus, Trash2, ChevronUp, ChevronDown, Pencil, CheckCircle2, AlertTriangle, XCircle, RefreshCw, FolderTree } from 'lucide-vue-next';
+import { ref, onMounted, reactive, computed } from 'vue';
+import { Plus, Trash2, ChevronUp, ChevronDown, Pencil, CheckCircle2, AlertTriangle, XCircle, RefreshCw, FolderTree, Sparkles, Palette } from 'lucide-vue-next';
 import { useTelemetryStore } from '~/stores/telemetryStore';
+import { useToast } from '~/composables/useToast';
 import type { AgentConfig, ParserType } from '~/server/types/telemetry';
 import BreadcrumbNav from '~/components/BreadcrumbNav.vue';
+import HsvColorWheel from '~/components/HsvColorWheel.vue';
 
 const store = useTelemetryStore();
+const toast = useToast();
+const isEditingColor = ref(false);
+
+const VIBRANT_PALETTE = [
+  '#06b6d4', // Cyan
+  '#ec4899', // Pink
+  '#f97316', // Orange
+  '#10b981', // Emerald
+  '#8b5cf6', // Violet
+  '#3b82f6', // Blue
+  '#eab308', // Amber / Yellow
+  '#14b8a6', // Teal
+  '#a855f7', // Purple
+  '#f43f5e', // Rose
+  '#6366f1', // Indigo
+  '#84cc16'  // Lime
+];
+
+function getRandomColor(): string {
+  const used = new Set(agents.value.map(a => (a.color || '').toLowerCase()));
+  const available = VIBRANT_PALETTE.filter(c => !used.has(c.toLowerCase()));
+  if (available.length > 0) {
+    return available[Math.floor(Math.random() * available.length)];
+  }
+  return VIBRANT_PALETTE[Math.floor(Math.random() * VIBRANT_PALETTE.length)];
+}
+
+function randomizeColor() {
+  newAgent.value.color = getRandomColor();
+}
 
 const agents = ref<AgentConfig[]>([]);
 const slidingWindowMinutes = ref(15);
@@ -329,7 +480,46 @@ const pathStatuses = reactive<Record<string, { exists: boolean; fileCount: numbe
 const isValidatingModal = ref(false);
 const modalValidationResult = ref<{ valid: boolean; exists: boolean; fileCount: number; sampleFiles?: string[]; error?: string; warning?: string } | null>(null);
 
-let validationDebounceTimer: any = null;
+const runningProcesses = ref<{ pid: number; name: string }[]>([]);
+const isProcessNameTouched = ref(false);
+const isParserTouched = ref(false);
+
+const selectedTemplateId = ref<string | null>(null);
+const defaultFallbackTemplates = [
+  { id: 'claude', name: 'Claude Code', path: '~/.claude/', parser: 'claude-stream', processName: 'claude', color: '#ec4899', alertThreshold: 10000, statusUrl: 'https://status.claude.com' },
+  { id: 'codegpt', name: 'CodeGPT', path: '~/.codegpt/', parser: 'sqlite-db', processName: 'codegpt', color: '#10b981', alertThreshold: 15000, statusUrl: 'https://status.openai.com' },
+  { id: 'antigravity', name: 'Antigravity', path: '~/.gemini/antigravity/brain/', parser: 'jsonl-stream', processName: 'antigravity', color: '#06b6d4', alertThreshold: 10000, statusUrl: 'https://status.cloud.google.com' },
+  { id: 'ollama', name: 'Ollama', path: '~/.ollama/logs/server.log', parser: 'regex-log', processName: 'ollama', color: '#10b981', alertThreshold: 10000, statusUrl: 'http://localhost:11434' }
+];
+
+const agentTemplates = ref<any[]>(defaultFallbackTemplates);
+
+async function fetchTemplates() {
+  try {
+    if (typeof $fetch !== 'undefined') {
+      const res = await $fetch<{ templates: any[] }>('/api/templates');
+      if (res?.templates && Array.isArray(res.templates)) {
+        agentTemplates.value = res.templates;
+      }
+    }
+  } catch {}
+}
+
+function onTemplateDropdownChange() {
+  const tmpl = agentTemplates.value.find(t => t.id === selectedTemplateId.value);
+  if (!tmpl) return;
+  if (!newAgent.value.name || agentTemplates.value.some(t => t.name === newAgent.value.name)) {
+    newAgent.value.name = tmpl.name;
+  }
+  newAgent.value.path = tmpl.path;
+  newAgent.value.parser = tmpl.parser;
+  newAgent.value.processName = tmpl.processName;
+  newAgent.value.color = tmpl.color;
+  newAgent.value.statusUrl = tmpl.statusUrl || '';
+  isParserTouched.value = true;
+  isProcessNameTouched.value = true;
+  validateModalPath();
+}
 
 const newAgent = ref<{
   name: string;
@@ -338,14 +528,46 @@ const newAgent = ref<{
   processName: string;
   color: string;
   alertThreshold: number;
+  statusUrl: string;
 }>({
   name: '',
   path: '',
   parser: 'jsonl-stream',
   processName: '',
   color: '#f97316',
-  alertThreshold: 15000
+  alertThreshold: 15000,
+  statusUrl: ''
 });
+
+const inferredProcessName = computed(() => {
+  if (!newAgent.value.name) return 'auto';
+  return newAgent.value.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+});
+
+const suggestedProcesses = computed(() => {
+  const query = (newAgent.value.name || '').toLowerCase().trim();
+  const list = runningProcesses.value;
+  if (!query) {
+    return list.slice(0, 5);
+  }
+  const filtered = list.filter(p => p.name.toLowerCase().includes(query) || query.includes(p.name.toLowerCase()));
+  return filtered.length > 0 ? filtered.slice(0, 6) : list.slice(0, 5);
+});
+
+async function fetchRunningProcesses() {
+  try {
+    const res = await $fetch<{ processes: { pid: number; name: string }[] }>('/api/processes');
+    if (res?.processes) {
+      runningProcesses.value = res.processes;
+    }
+  } catch {}
+}
+
+function onNameChange() {
+  if (!isProcessNameTouched.value) {
+    newAgent.value.processName = newAgent.value.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+}
 
 function getDiscoveryPattern(agent: AgentConfig): string {
   if (agent.id === 'claude' || agent.parser === 'claude-stream') {
@@ -401,6 +623,9 @@ async function validateModalPath() {
   isValidatingModal.value = true;
   const res = await validatePathOnServer(newAgent.value.path, undefined, newAgent.value.parser);
   modalValidationResult.value = res;
+  if (res && res.detectedParser && !isParserTouched.value) {
+    newAgent.value.parser = res.detectedParser as ParserType;
+  }
   isValidatingModal.value = false;
 }
 
@@ -412,6 +637,7 @@ function onModalPathChange() {
 }
 
 onMounted(async () => {
+  await fetchTemplates();
   await store.fetchConfig();
   if (store.config) {
     agents.value = JSON.parse(JSON.stringify(store.config.agents));
@@ -441,37 +667,49 @@ const deleteAgent = (idx: number) => {
 
 const openAddModal = () => {
   editingIndex.value = null;
+  selectedTemplateId.value = null;
   modalValidationResult.value = null;
+  isProcessNameTouched.value = false;
+  isParserTouched.value = false;
+  isEditingColor.value = false;
   newAgent.value = {
     name: '',
     path: '',
-    parser: 'jsonl-stream',
+    parser: 'sqlite-db',
     processName: '',
-    color: '#f97316',
-    alertThreshold: 15000
+    color: getRandomColor(),
+    alertThreshold: 15000,
+    statusUrl: ''
   };
   showModal.value = true;
+  fetchRunningProcesses();
 };
 
 const openEditModal = (idx: number) => {
   editingIndex.value = idx;
+  selectedTemplateId.value = null;
+  isEditingColor.value = false;
   const target = agents.value[idx];
   modalValidationResult.value = null;
+  isProcessNameTouched.value = true;
+  isParserTouched.value = true;
   newAgent.value = {
     name: target.name,
     path: target.path,
     parser: target.parser,
     processName: target.processName,
     color: target.color,
-    alertThreshold: target.alertThreshold || 15000
+    alertThreshold: target.alertThreshold || 15000,
+    statusUrl: target.statusUrl || ''
   };
   showModal.value = true;
   validateModalPath();
+  fetchRunningProcesses();
 };
 
 const confirmAddAgent = () => {
   if (!newAgent.value.name || !newAgent.value.path) {
-    alert('Please provide an Agent Name and Log Path.');
+    toast.warning('Please provide an Agent Name and Log Path.', 'Missing Information');
     return;
   }
 
@@ -484,7 +722,9 @@ const confirmAddAgent = () => {
     current.processName = newAgent.value.processName || current.id;
     current.color = newAgent.value.color;
     current.alertThreshold = newAgent.value.alertThreshold;
+    current.statusUrl = newAgent.value.statusUrl || undefined;
     validateAgentPath(current);
+    toast.success(`Agent "${current.name}" updated successfully!`, 'Agent Saved');
   } else {
     // Add new agent
     const id = newAgent.value.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
@@ -496,10 +736,12 @@ const confirmAddAgent = () => {
       path: newAgent.value.path,
       processName: newAgent.value.processName || id,
       color: newAgent.value.color,
-      alertThreshold: newAgent.value.alertThreshold
+      alertThreshold: newAgent.value.alertThreshold,
+      statusUrl: newAgent.value.statusUrl || undefined
     };
     agents.value.push(added);
     validateAgentPath(added);
+    toast.success(`Agent "${added.name}" added to configuration!`, 'Agent Created');
   }
 
   showModal.value = false;
@@ -511,7 +753,7 @@ const saveAll = async () => {
     refreshIntervalMs: refreshIntervalMs.value,
     agents: agents.value
   });
-  alert('Configuration saved and telemetry engine reloaded!');
+  toast.success('Configuration saved and telemetry engine reloaded!', 'Settings Applied');
   validateAllAgentPaths();
 };
 </script>
