@@ -113,6 +113,14 @@ export async function checkStatusUrl(url: string, id: string, name: string): Pro
     };
   }
 
+  if (statusCache.size > 20) {
+    for (const [key, val] of statusCache) {
+      if (now - val.timestamp > CACHE_TTL_MS * 5) {
+        statusCache.delete(key);
+      }
+    }
+  }
+
   statusCache.set(url, { timestamp: now, data: health });
   return health;
 }
@@ -139,15 +147,14 @@ export async function fetchProviderStatuses(): Promise<{ providers: ProviderHeal
     { id: 'ollama', name: 'Ollama (Local)', url: 'http://localhost:11434' }
   ];
 
-  const results: ProviderHealth[] = [];
+  const fetchPromises: Promise<ProviderHealth>[] = [];
   const processedUrls = new Set<string>();
 
   // 1. Process custom status URLs from config
   for (const agent of configAgents) {
     if (agent.statusUrl && !processedUrls.has(agent.statusUrl)) {
       processedUrls.add(agent.statusUrl);
-      const res = await checkStatusUrl(agent.statusUrl, agent.id, `${agent.name} Status`);
-      results.push(res);
+      fetchPromises.push(checkStatusUrl(agent.statusUrl, agent.id, `${agent.name} Status`));
     }
   }
 
@@ -155,11 +162,11 @@ export async function fetchProviderStatuses(): Promise<{ providers: ProviderHeal
   for (const def of defaultUrls) {
     if (!processedUrls.has(def.url)) {
       processedUrls.add(def.url);
-      const res = await checkStatusUrl(def.url, def.id, def.name);
-      results.push(res);
+      fetchPromises.push(checkStatusUrl(def.url, def.id, def.name));
     }
   }
 
+  const results = await Promise.all(fetchPromises);
   return { providers: results, cached: false };
 }
 

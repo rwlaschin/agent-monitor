@@ -9,6 +9,8 @@ const execAsync = promisify(exec);
 
 export class SqliteAdapter implements LogAdapter {
   private lastRowIds: Map<string, number> = new Map();
+  private threadTokens: Map<string, number> = new Map();
+  private isInitialized: Map<string, boolean> = new Map();
   private execFn: (cmd: string, opts?: any) => Promise<{ stdout: string; stderr: string }>;
 
   constructor(execFn: (cmd: string, opts?: any) => Promise<{ stdout: string; stderr: string }> = execAsync) {
@@ -17,6 +19,8 @@ export class SqliteAdapter implements LogAdapter {
 
   public reset(): void {
     this.lastRowIds.clear();
+    this.threadTokens.clear();
+    this.isInitialized.clear();
   }
 
   /**
@@ -33,13 +37,73 @@ export class SqliteAdapter implements LogAdapter {
     if (!fs.existsSync(dbPath)) return [];
 
     try {
-      const lastRowId = this.lastRowIds.get(dbPath) || 0;
-      
       // Query table list via sqlite3 CLI
       const { stdout: tablesOut } = await this.execFn(`sqlite3 "${dbPath}" ".tables"`, { timeout: 2000 });
       const tables = tablesOut.trim().split(/\s+/).filter(t => t && !t.startsWith('sqlite_'));
       if (tables.length === 0) return [];
 
+      // 1. Check for Codex / ChatGPT state database with 'threads' table
+      if (tables.includes('threads')) {
+        const query = `SELECT id, COALESCE(NULLIF(name, ''), SUBSTR(title, 1, 35), id), tokens_used, COALESCE(updated_at_ms, updated_at * 1000) FROM threads WHERE tokens_used > 0 ORDER BY updated_at ASC;`;
+        const { stdout: threadsOut } = await this.execFn(`sqlite3 -separator '|' "${dbPath}" "${query}"`, { timeout: 2000 });
+        const lines = threadsOut.trim().split('\n').filter(l => l.trim().length > 0);
+        const frames: CanonicalTelemetryFrame[] = [];
+        const isFirstRun = !this.isInitialized.get(dbPath);
+
+        for (const line of lines) {
+          const parts = line.split('|');
+          if (parts.length < 4) continue;
+
+          const threadId = parts[0].trim();
+          let threadName = parts[1].trim();
+          // Clean thread title from multiline or prompt prefixes
+          threadName = threadName.replace(/[\r\n]+/g, ' ').slice(0, 30);
+          const tokensUsed = parseInt(parts[2], 10) || 0;
+          let rowTime = parseInt(parts[3], 10) || Date.now();
+          if (rowTime < 10000000000) rowTime *= 1000;
+
+          const prev = this.threadTokens.get(threadId);
+
+          if (prev === undefined) {
+            this.threadTokens.set(threadId, tokensUsed);
+            // On startup, if recently updated within last 15 minutes, emit baseline activity
+            if (Date.now() - rowTime < 15 * 60 * 1000 && tokensUsed > 0) {
+              const baseline = isFirstRun ? Math.min(tokensUsed, 5000) : tokensUsed;
+              frames.push({
+                agentId: config.id,
+                agentName: config.name,
+                subagentId: `thread-${threadId.slice(0, 8)}`,
+                subagentName: threadName || `thread-${threadId.slice(0, 8)}`,
+                timestamp: rowTime,
+                inputTokens: 0,
+                outputTokens: baseline,
+                totalTokens: baseline,
+                status: 'active'
+              });
+            }
+          } else if (tokensUsed > prev) {
+            const delta = tokensUsed - prev;
+            this.threadTokens.set(threadId, tokensUsed);
+            frames.push({
+              agentId: config.id,
+              agentName: config.name,
+              subagentId: `thread-${threadId.slice(0, 8)}`,
+              subagentName: threadName || `thread-${threadId.slice(0, 8)}`,
+              timestamp: rowTime,
+              inputTokens: 0,
+              outputTokens: delta,
+              totalTokens: delta,
+              status: 'active'
+            });
+          }
+        }
+
+        this.isInitialized.set(dbPath, true);
+        if (frames.length > 0) return frames;
+      }
+
+      // 2. Generic incremental row table lookup (messages, chat, history, etc.)
+      const lastRowId = this.lastRowIds.get(dbPath) || 0;
       const targetTable = tables.find(t => 
         t.toLowerCase().includes('message') || 
         t.toLowerCase().includes('history') || 

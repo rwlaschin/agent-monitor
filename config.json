@@ -40,10 +40,10 @@
       "name": "Codegpt",
       "enabled": true,
       "parser": "sqlite-db",
-      "path": "~/.codegpt",
+      "path": "~/.codex",
       "processName": "codegpt",
       "color": "#f97316",
-      "alertThreshold": 15000,
+      "alertThreshold": 10000,
       "statusUrl": "https://status.openai.com"
     }
   ]

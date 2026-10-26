@@ -479,6 +479,7 @@ const pathStatuses = reactive<Record<string, { exists: boolean; fileCount: numbe
 
 const isValidatingModal = ref(false);
 const modalValidationResult = ref<{ valid: boolean; exists: boolean; fileCount: number; sampleFiles?: string[]; error?: string; warning?: string } | null>(null);
+let validationDebounceTimer: any = null;
 
 const runningProcesses = ref<{ pid: number; name: string }[]>([]);
 const isProcessNameTouched = ref(false);

@@ -153,15 +153,11 @@ const topProcessLayers = computed(() => {
   const subagentTotals = new Map<string, { id: string; name: string; color: string; totalTokens: number; currentRate: number }>();
   const latestBucket = buckets.length > 0 ? buckets[buckets.length - 1] : null;
 
-  const getCanonicalKey = (id: string, name: string) => {
-    const cleanId = (id || '').replace(/^project-+/i, '').trim();
-    const cleanName = (name || '').trim();
-    return cleanName && cleanName !== cleanId ? cleanName : cleanId;
-  };
+  const getCanonicalKey = (id: string) => (id || '').replace(/^project-+/i, '').trim();
 
   // Initialize from known subagents
   for (const sub of activeSubs) {
-    const key = getCanonicalKey(sub.id, sub.name);
+    const key = getCanonicalKey(sub.id);
     const existing = subagentTotals.get(key);
     if (existing) {
       existing.totalTokens += (sub.totalTokens || 0);
@@ -182,7 +178,7 @@ const topProcessLayers = computed(() => {
   for (const bucket of buckets) {
     if (!bucket.subagentTokens) continue;
     for (const [subId, data] of Object.entries(bucket.subagentTokens)) {
-      const key = getCanonicalKey(subId, data.name || subId);
+      const key = getCanonicalKey(subId);
       let existing = subagentTotals.get(key);
       if (!existing) {
         existing = {
@@ -200,7 +196,7 @@ const topProcessLayers = computed(() => {
 
   if (latestBucket && latestBucket.subagentTokens) {
     for (const [subId, data] of Object.entries(latestBucket.subagentTokens)) {
-      const key = getCanonicalKey(subId, data.name || subId);
+      const key = getCanonicalKey(subId);
       const existing = subagentTotals.get(key);
       if (existing) {
         existing.currentRate = data.tokens;
@@ -615,11 +611,11 @@ const handleVisibilityChange = () => {
   }
 };
 
-watch(() => props.history, () => {
+watch([() => props.history, () => props.localMax, () => props.subagents], () => {
   if (typeof document !== 'undefined' && document.hidden) return;
   if (animationFrameId) cancelAnimationFrame(animationFrameId);
   animationFrameId = requestAnimationFrame(renderChart);
-});
+}, { deep: true });
 
 onMounted(() => {
   renderChart();

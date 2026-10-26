@@ -10,6 +10,8 @@ export const useTelemetryStore = defineStore('telemetry', {
     cardOrder: [] as string[],
     processOrders: {} as Record<string, string[]>,
     eventSource: null as EventSource | null,
+    fallbackPollingTimer: null as any,
+    connectionStatus: 'connecting' as 'connecting' | 'connected' | 'reconnecting' | 'disconnected',
     isConnected: false,
     killInProgress: {} as Record<string, boolean>
   }),
@@ -61,25 +63,31 @@ export const useTelemetryStore = defineStore('telemetry', {
       this.connectSSE();
     },
 
+    ingestSnapshots(data: AgentTelemetrySnapshot[]) {
+      if (!Array.isArray(data)) return;
+      if (this.config && this.config.agents) {
+        const colorMap = new Map(this.config.agents.map(a => [a.id, a.color]));
+        const thresholdMap = new Map(this.config.agents.map(a => [a.id, a.alertThreshold]));
+
+        for (const item of data) {
+          if (colorMap.has(item.agentId) && colorMap.get(item.agentId)) {
+            item.color = colorMap.get(item.agentId)!;
+          }
+          if (thresholdMap.has(item.agentId) && thresholdMap.get(item.agentId) !== undefined) {
+            item.alertThreshold = thresholdMap.get(item.agentId)!;
+            item.isAlertBreached = item.currentRate >= item.alertThreshold;
+          }
+        }
+      }
+      this.snapshots = data;
+    },
+
     async fetchInitialSnapshots() {
+      if (typeof $fetch === 'undefined') return;
       try {
         const res = await $fetch<AgentTelemetrySnapshot[]>('/api/telemetry-snapshot');
-        if (Array.isArray(res) && res.length > 0 && this.snapshots.length === 0) {
-          if (this.config && this.config.agents) {
-            const colorMap = new Map(this.config.agents.map(a => [a.id, a.color]));
-            const thresholdMap = new Map(this.config.agents.map(a => [a.id, a.alertThreshold]));
-
-            for (const item of res) {
-              if (colorMap.has(item.agentId) && colorMap.get(item.agentId)) {
-                item.color = colorMap.get(item.agentId)!;
-              }
-              if (thresholdMap.has(item.agentId) && thresholdMap.get(item.agentId) !== undefined) {
-                item.alertThreshold = thresholdMap.get(item.agentId)!;
-                item.isAlertBreached = item.currentRate >= item.alertThreshold;
-              }
-            }
-          }
-          this.snapshots = res;
+        if (Array.isArray(res) && res.length > 0) {
+          this.ingestSnapshots(res);
         }
       } catch {}
     },
@@ -89,28 +97,15 @@ export const useTelemetryStore = defineStore('telemetry', {
         ...this.processOrders,
         [agentId]: newOrder
       };
-      if (process.client) {
-        try {
-          localStorage.setItem('agent_monitor_process_orders', JSON.stringify(this.processOrders));
-        } catch {}
+      if (!process.server) {
+        localStorage.setItem('agent_monitor_process_orders', JSON.stringify(this.processOrders));
       }
     },
 
     setCardOrder(newOrder: string[]) {
       this.cardOrder = newOrder;
-      if (process.client) {
+      if (!process.server) {
         localStorage.setItem('agent_monitor_order', JSON.stringify(newOrder));
-      }
-
-      // Also persist to config.agents order if config loaded
-      if (this.config && this.config.agents) {
-        const orderMap = new Map(newOrder.map((id, idx) => [id, idx]));
-        this.config.agents.sort((a, b) => {
-          const idxA = orderMap.has(a.id) ? orderMap.get(a.id)! : 9999;
-          const idxB = orderMap.has(b.id) ? orderMap.get(b.id)! : 9999;
-          return idxA - idxB;
-        });
-        this.saveConfig(this.config);
       }
     },
 
@@ -123,7 +118,7 @@ export const useTelemetryStore = defineStore('telemetry', {
 
     setColumnLayout(cols: 1 | 2 | 3 | 4) {
       this.columnLayout = cols;
-      if (process.client) {
+      if (!process.server) {
         localStorage.setItem('agent_monitor_layout', cols.toString());
       }
     },
@@ -132,7 +127,12 @@ export const useTelemetryStore = defineStore('telemetry', {
       if (typeof $fetch === 'undefined') return;
       try {
         const data = await $fetch<AppConfig>('/api/config');
-        this.config = data;
+        if (data) {
+          this.config = data;
+          if (data.slidingWindowMinutes) {
+            this.columnLayout = this.columnLayout || 2;
+          }
+        }
       } catch (err) {
         console.error('Failed to fetch config:', err);
       }
@@ -146,8 +146,18 @@ export const useTelemetryStore = defineStore('telemetry', {
           body: newConfig
         });
         this.config = newConfig;
+        useToast().addToast({
+          type: 'success',
+          title: 'Config Saved',
+          message: 'Agent configuration successfully updated.'
+        });
       } catch (err) {
         console.error('Failed to save config:', err);
+        useToast().addToast({
+          type: 'error',
+          title: 'Save Failed',
+          message: 'Could not save configuration changes.'
+        });
       }
     },
 
@@ -173,18 +183,7 @@ export const useTelemetryStore = defineStore('telemetry', {
     },
 
     async updateAgentColor(agentId: string, newColor: string) {
-      // 1. Instant local reactive snapshot update
-      const snapshot = this.snapshots.find(s => s.agentId === agentId);
-      if (snapshot) {
-        snapshot.color = newColor;
-      }
-
-      // 2. Update config and persist
-      if (!this.config) {
-        await this.fetchConfig();
-      }
       if (!this.config) return;
-
       const agent = this.config.agents.find(a => a.id === agentId);
       if (agent) {
         agent.color = newColor;
@@ -199,33 +198,22 @@ export const useTelemetryStore = defineStore('telemetry', {
         this.eventSource.close();
       }
 
+      let lastMessageTime = 0;
+
       try {
         this.eventSource = new EventSource('/api/telemetry');
 
         this.eventSource.onopen = () => {
           this.isConnected = true;
+          lastMessageTime = Date.now();
         };
 
         this.eventSource.onmessage = (event) => {
+          this.isConnected = true;
+          lastMessageTime = Date.now();
           try {
             const data = JSON.parse(event.data) as AgentTelemetrySnapshot[];
-            if (Array.isArray(data)) {
-              if (this.config && this.config.agents) {
-                const colorMap = new Map(this.config.agents.map(a => [a.id, a.color]));
-                const thresholdMap = new Map(this.config.agents.map(a => [a.id, a.alertThreshold]));
-
-                for (const item of data) {
-                  if (colorMap.has(item.agentId) && colorMap.get(item.agentId)) {
-                    item.color = colorMap.get(item.agentId)!;
-                  }
-                  if (thresholdMap.has(item.agentId) && thresholdMap.get(item.agentId) !== undefined) {
-                    item.alertThreshold = thresholdMap.get(item.agentId)!;
-                    item.isAlertBreached = item.currentRate >= item.alertThreshold;
-                  }
-                }
-              }
-              this.snapshots = data;
-            }
+            this.ingestSnapshots(data);
           } catch (err) {
             console.error('Error parsing telemetry stream:', err);
           }
@@ -235,8 +223,27 @@ export const useTelemetryStore = defineStore('telemetry', {
           this.isConnected = false;
         };
       } catch (err) {
+        this.isConnected = false;
         console.error('Failed to initialize EventSource:', err);
       }
+
+      if (this.fallbackPollingTimer) {
+        clearInterval(this.fallbackPollingTimer);
+        this.fallbackPollingTimer = null;
+      }
+
+      // Fail-safe snapshot polling if SSE stream is stalled or pending
+      this.fallbackPollingTimer = setInterval(async () => {
+        if (typeof $fetch === 'undefined') return;
+        if (Date.now() - lastMessageTime > 2000) {
+          try {
+            const res = await $fetch<AgentTelemetrySnapshot[]>('/api/telemetry-snapshot');
+            if (Array.isArray(res) && res.length > 0) {
+              this.ingestSnapshots(res);
+            }
+          } catch {}
+        }
+      }, 1000);
     },
 
     async triggerEmergencyStop(agentId: string, targetPid?: number) {

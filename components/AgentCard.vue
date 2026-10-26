@@ -75,21 +75,41 @@
             </div>
           </div>
 
-          <!-- Agent Name Button Colored with Status -->
+          <!-- Agent Name Link (Neutral, No Local Status) -->
           <NuxtLink 
             :to="`/agents/${snapshot.agentId}`"
-            :class="[
-              'px-2.5 py-1 rounded-lg text-xs font-bold font-mono tracking-tight transition-all border inline-flex items-center shadow-sm cursor-pointer',
-              snapshot.status === 'active' 
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20' :
-              snapshot.status === 'idle' 
-                ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700/60 hover:bg-zinc-200 dark:hover:bg-zinc-700' :
-                'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/20'
-            ]"
-            :title="`Status: ${snapshot.status}${snapshot.activePid ? ' (PID: ' + snapshot.activePid + ')' : ''}`"
+            class="px-2.5 py-1 rounded-lg text-xs font-bold font-mono tracking-tight transition-all border bg-zinc-100 dark:bg-zinc-800/80 text-zinc-800 dark:text-zinc-200 border-zinc-200 dark:border-zinc-700/60 hover:border-violet-500 dark:hover:border-violet-500 inline-flex items-center shadow-sm cursor-pointer"
+            :title="`View ${snapshot.agentName} stream`"
           >
             {{ snapshot.agentName }}
           </NuxtLink>
+
+          <!-- Upstream LLM Provider Health Status Badge -->
+          <a
+            v-if="providerHealth"
+            :href="providerHealth.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium border transition-colors cursor-pointer"
+            :class="[
+              providerHealth.status === 'major_outage' 
+                ? 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/20' :
+              providerHealth.status === 'degraded' 
+                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20' :
+                'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+            ]"
+            :title="`Upstream LLM Health (${providerHealth.name}): ${providerHealth.description} - Click to open status page`"
+          >
+            <span 
+              :class="[
+                'w-1.5 h-1.5 rounded-full shrink-0',
+                providerHealth.status === 'major_outage' ? 'bg-red-500 animate-pulse' :
+                providerHealth.status === 'degraded' ? 'bg-amber-500' :
+                'bg-emerald-500'
+              ]"
+            ></span>
+            <span>{{ providerHealth.status === 'operational' ? 'API OK' : providerHealth.status === 'degraded' ? 'Degraded' : 'Outage' }}</span>
+          </a>
         </div>
 
         <div class="flex items-center space-x-1.5 relative">
@@ -241,6 +261,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Maximize2, Square, Bell, GripVertical, Info, Palette } from 'lucide-vue-next';
 import type { AgentTelemetrySnapshot } from '~/server/types/telemetry';
+import { useProviderHealth } from '~/composables/useProviderHealth';
 import AgentChart from './AgentChart.vue';
 import HsvColorWheel from './HsvColorWheel.vue';
 
@@ -257,6 +278,9 @@ const emit = defineEmits<{
   (e: 'dragHandleEnter'): void;
   (e: 'dragHandleLeave'): void;
 }>();
+
+const { getProviderForAgent } = useProviderHealth();
+const providerHealth = computed(() => getProviderForAgent(props.snapshot.agentId, props.snapshot.agentName, props.snapshot.statusUrl));
 
 const isEditingThreshold = ref(false);
 const isEditingColor = ref(false);
@@ -341,7 +365,6 @@ const closeAllPopovers = (e: MouseEvent) => {
   if (!target.closest('.popover-container')) {
     isEditingThreshold.value = false;
     isEditingColor.value = false;
-    isShowingStatusInfo.value = false;
   }
 };
 

@@ -99,18 +99,18 @@ export default defineEventHandler(async (event) => {
       };
     }
 
-    // Fully asynchronous, non-blocking shallow directory scan (max depth 2, max 25 files)
+    // Fully asynchronous, non-blocking shallow directory scan (max depth 4, max 25 files)
     const matchedFiles: string[] = [];
-    const ignoredDirs = new Set(['node_modules', '.git', '.cache', 'dist', '.output', '.npm', '.Trash']);
+    const ignoredDirs = new Set(['node_modules', '.git', '.cache', 'dist', '.output', '.npm', '.Trash', 'workspaces', 'scratch']);
 
     const scanDirAsync = async (dir: string, depth = 0): Promise<void> => {
-      if (depth > 2 || matchedFiles.length >= 25) return;
+      if (depth > 4 || matchedFiles.length >= 25) return;
       try {
         const entries = await fs.readdir(dir, { withFileTypes: true });
         for (const e of entries) {
           if (matchedFiles.length >= 25) break;
           if (ignoredDirs.has(e.name)) continue;
-          if (e.name.startsWith('.') && e.name !== '.system_generated' && e.name !== '.claude') continue;
+          if (e.name.startsWith('.') && e.name !== '.system_generated' && e.name !== '.claude' && e.name !== '.gemini' && e.name !== '.codex') continue;
 
           const full = path.join(dir, e.name);
           if (e.isDirectory()) {

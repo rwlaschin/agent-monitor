@@ -7,6 +7,7 @@ import { FileTailer } from './tailer';
 import { ClaudeAdapter } from './adapters/claudeAdapter';
 import { AntigravityAdapter } from './adapters/antigravityAdapter';
 import { SqliteAdapter } from './adapters/sqliteAdapter';
+import { CodexAdapter } from './adapters/codexAdapter';
 import type { LogAdapter } from './adapters/types';
 import { processProvider } from './process/factory';
 
@@ -25,6 +26,9 @@ export class TelemetryEngine {
   private watchers: Map<string, fs.FSWatcher[]> = new Map();
   private pids: Map<string, number | null> = new Map();
   private lastPidCheck: Map<string, number> = new Map();
+  private inFlightPidLookups: Set<string> = new Set();
+  private inFlightCodexRollouts: Map<string, Promise<void>> = new Map();
+  private dirtyCodexRollouts: Set<string> = new Set();
   private knownProcesses: Map<string, Map<string, { id: string; name: string; pid: number | null }>> = new Map();
   private configPath: string;
 
@@ -106,7 +110,9 @@ export class TelemetryEngine {
         this.buffers.set(agent.id, new SlidingWindowRingBuffer(this.config.slidingWindowMinutes || 15));
       }
 
-      if (agent.parser === 'sqlite-db') {
+      if (agent.id === 'codegpt') {
+        this.adapters.set(agent.id, new CodexAdapter());
+      } else if (agent.parser === 'sqlite-db') {
         this.adapters.set(agent.id, new SqliteAdapter());
       } else if (agent.parser === 'json-cache' || agent.parser === 'claude-stream' || agent.id === 'claude') {
         this.adapters.set(agent.id, new ClaudeAdapter());
@@ -116,7 +122,7 @@ export class TelemetryEngine {
         this.adapters.set(agent.id, new ClaudeAdapter());
       }
 
-      this.bootstrapExistingFiles(agent);
+      await this.bootstrapExistingFiles(agent);
       this.watchAgent(agent);
     }
   }
@@ -245,6 +251,10 @@ export class TelemetryEngine {
     const resolvedPath = resolveHome(agent.path);
     if (!fs.existsSync(resolvedPath)) return [];
 
+    if (agent.id === 'codegpt') {
+      return this.discoverCodexFiles(resolvedPath);
+    }
+
     if (agent.parser === 'sqlite-db') {
       try {
         const stats = fs.statSync(resolvedPath);
@@ -274,11 +284,57 @@ export class TelemetryEngine {
     return [];
   }
 
-  private bootstrapExistingFiles(agent: AgentConfig): void {
+  private discoverCodexFiles(codexRoot: string): string[] {
+    const databases: string[] = [];
+    const rollouts: Array<{ filePath: string; modifiedAt: number }> = [];
+
+    try {
+      const rootEntries = fs.readdirSync(codexRoot, { withFileTypes: true });
+      for (const entry of rootEntries) {
+        if (entry.isFile() && this.isCodexDatabasePath(path.join(codexRoot, entry.name))) {
+          databases.push(path.join(codexRoot, entry.name).replace(/-(?:wal|shm)$/i, ''));
+        }
+      }
+
+      const sessionsRoot = path.join(codexRoot, 'sessions');
+      const pending = fs.existsSync(sessionsRoot) ? [sessionsRoot] : [];
+      while (pending.length > 0 && rollouts.length < 512) {
+        const directory = pending.pop()!;
+        for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+          const fullPath = path.join(directory, entry.name);
+          if (entry.isDirectory()) {
+            pending.push(fullPath);
+          } else if (entry.isFile() && this.isCodexRolloutPath(fullPath)) {
+            rollouts.push({ filePath: fullPath, modifiedAt: fs.statSync(fullPath).mtimeMs });
+          }
+        }
+      }
+    } catch {}
+
+    const recentRollouts = rollouts
+      .sort((a, b) => b.modifiedAt - a.modifiedAt)
+      .slice(0, 256)
+      .map(entry => entry.filePath);
+
+    return [...new Set(databases), ...recentRollouts];
+  }
+
+  private isCodexDatabasePath(filePath: string): boolean {
+    return /^state(?:_\d+)?\.sqlite(?:-(?:wal|shm))?$/i.test(path.basename(filePath));
+  }
+
+  private isCodexRolloutPath(filePath: string): boolean {
+    return filePath.split(path.sep).includes('sessions') && /^rollout-.*\.jsonl$/i.test(path.basename(filePath));
+  }
+
+  private async bootstrapExistingFiles(agent: AgentConfig): Promise<void> {
     try {
       const files = this.discoverTargetFiles(agent);
       for (const file of files) {
-        this.handleFileChange(agent, file);
+        if (agent.id === 'codegpt' && this.isCodexRolloutPath(file)) {
+          (this.adapters.get(agent.id) as CodexAdapter | undefined)?.markExistingRollout(file);
+        }
+        await this.handleFileChange(agent, file);
       }
     } catch {}
   }
@@ -335,6 +391,9 @@ export class TelemetryEngine {
           if (agent.id === 'claude' && !fullPath.endsWith('.jsonl') && !fullPath.endsWith('.json')) {
             return;
           }
+          if (agent.id === 'codegpt' && !this.isCodexDatabasePath(fullPath) && !this.isCodexRolloutPath(fullPath)) {
+            return;
+          }
 
           this.handleFileChange(agent, fullPath);
         });
@@ -350,24 +409,62 @@ export class TelemetryEngine {
   }
 
   private async handleFileChange(agent: AgentConfig, targetFile: string): Promise<void> {
+    if (agent.id === 'codegpt' && this.isCodexRolloutPath(targetFile)) {
+      const existing = this.inFlightCodexRollouts.get(targetFile);
+      if (existing) {
+        this.dirtyCodexRollouts.add(targetFile);
+        await existing;
+        return;
+      }
+
+      const current = (async () => {
+        do {
+          this.dirtyCodexRollouts.delete(targetFile);
+          await this.processFileChange(agent, targetFile);
+        } while (this.dirtyCodexRollouts.delete(targetFile));
+      })();
+      this.inFlightCodexRollouts.set(targetFile, current);
+      try {
+        await current;
+      } finally {
+        this.dirtyCodexRollouts.delete(targetFile);
+        if (this.inFlightCodexRollouts.get(targetFile) === current) {
+          this.inFlightCodexRollouts.delete(targetFile);
+        }
+      }
+      return;
+    }
+
+    await this.processFileChange(agent, targetFile);
+  }
+
+  private async processFileChange(agent: AgentConfig, targetFile: string): Promise<void> {
     try {
       const stats = fs.statSync(targetFile, { throwIfNoEntry: false });
       if (!stats || stats.isDirectory()) return;
 
+      const isCodexAgent = agent.id === 'codegpt';
+      const isCodexDatabase = isCodexAgent && this.isCodexDatabasePath(targetFile);
+      const isCodexRollout = isCodexAgent && this.isCodexRolloutPath(targetFile);
+      if (isCodexAgent && !isCodexDatabase && !isCodexRollout) return;
+
       // Handle SQLite database parsing
       if (
-        agent.parser === 'sqlite-db' || 
-        targetFile.endsWith('.db') || 
-        targetFile.endsWith('.sqlite') || 
-        targetFile.endsWith('.sqlite3') || 
-        targetFile.endsWith('.vscdb') ||
-        targetFile.endsWith('-wal')
+        isCodexDatabase ||
+        (!isCodexAgent && (
+          agent.parser === 'sqlite-db' ||
+          targetFile.endsWith('.db') ||
+          targetFile.endsWith('.sqlite') ||
+          targetFile.endsWith('.sqlite3') ||
+          targetFile.endsWith('.vscdb') ||
+          targetFile.endsWith('-wal')
+        ))
       ) {
         const adapter = this.adapters.get(agent.id);
         const buffer = this.buffers.get(agent.id);
-        const actualDbPath = targetFile.replace(/-wal$/i, '');
+        const actualDbPath = targetFile.replace(/-(?:wal|shm)$/i, '');
         if (adapter && buffer && 'parseDatabase' in adapter) {
-          const frames = await (adapter as SqliteAdapter).parseDatabase(actualDbPath, agent);
+          const frames = await (adapter as SqliteAdapter | CodexAdapter).parseDatabase(actualDbPath, agent);
           for (const frame of frames) {
             if (frame.subagentId) {
               this.registerKnownProcess(agent.id, frame.subagentId, frame.subagentName || frame.subagentId);
@@ -401,9 +498,39 @@ export class TelemetryEngine {
         return;
       }
 
+      // Normalize SQLite files to the primary database (e.g. state_5.sqlite-wal -> state_5.sqlite)
+      let effectiveTarget = targetFile;
+      if (effectiveTarget.endsWith('-wal') || effectiveTarget.endsWith('-shm')) {
+        effectiveTarget = effectiveTarget.replace(/-wal$/, '').replace(/-shm$/, '');
+      }
+
+      // Handle SQLite database parsing directly without byte-tailing
+      if ((!isCodexAgent && agent.parser === 'sqlite-db') || effectiveTarget.endsWith('.sqlite') || effectiveTarget.endsWith('.db')) {
+        const sqliteAdapter = this.adapters.get(agent.id) as SqliteAdapter;
+        const buffer = this.buffers.get(agent.id);
+        if (sqliteAdapter && buffer && typeof sqliteAdapter.parseDatabase === 'function') {
+          const frames = await sqliteAdapter.parseDatabase(effectiveTarget, agent);
+          for (const frame of frames) {
+            if (frame.subagentId) {
+              this.registerKnownProcess(agent.id, frame.subagentId, frame.subagentName || frame.subagentId);
+            }
+            buffer.ingest(frame);
+          }
+        }
+        return;
+      }
+
       let tailer = this.tailers.get(targetFile);
       if (!tailer) {
+        if (this.tailers.size > 200) {
+          const oldestKey = this.tailers.keys().next().value;
+          if (oldestKey !== undefined) this.tailers.delete(oldestKey);
+        }
         tailer = new FileTailer(targetFile);
+        this.tailers.set(targetFile, tailer);
+      } else {
+        // Move to end of Map for LRU order
+        this.tailers.delete(targetFile);
         this.tailers.set(targetFile, tailer);
       }
 
@@ -447,13 +574,16 @@ export class TelemetryEngine {
         }
       }
 
-      // On-demand throttled lookup if PID is unknown and agent is actively burning tokens
+      // On-demand strictly throttled lookup if PID is unknown and agent is actively burning tokens
       const lastCheck = this.lastPidCheck.get(agent.id) || 0;
-      if (pid === null && (currentRate > 0 || now - lastCheck > 15000)) {
+      if (pid === null && currentRate > 0 && (now - lastCheck > 15000) && !this.inFlightPidLookups.has(agent.id)) {
+        this.inFlightPidLookups.add(agent.id);
         this.lastPidCheck.set(agent.id, now);
         processProvider.lookupPid(agent.processName).then(lookup => {
           if (lookup) this.pids.set(agent.id, lookup.pid);
-        }).catch(() => {});
+        }).catch(() => {}).finally(() => {
+          this.inFlightPidLookups.delete(agent.id);
+        });
       }
 
       const alertThreshold = agent.alertThreshold || 15000;
@@ -583,7 +713,7 @@ export class TelemetryEngine {
 
       const PROCESS_PALETTE = ['#ec4899', '#f59e0b', '#10b981', '#8b5cf6', '#06b6d4', '#3b82f6', '#f97316', '#14b8a6', '#e11d48'];
       const sortedSubs = Array.from(canonicalMap.values())
-        .filter(sub => sub.pid !== null || sub.currentRate > 0)
+        .filter(sub => sub.pid !== null || sub.currentRate > 0 || sub.totalTokens > 0)
         .sort((a, b) => b.totalTokens - a.totalTokens)
         .map((sub, idx) => ({
           id: sub.id,

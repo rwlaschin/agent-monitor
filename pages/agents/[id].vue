@@ -111,6 +111,7 @@
           :color="snapshot.color" 
           :alert-threshold="snapshot.alertThreshold" 
           :local-max="snapshot.localMax" 
+          :subagents="snapshot.subagents"
         />
       </div>
 

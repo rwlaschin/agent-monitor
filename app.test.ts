@@ -33,6 +33,7 @@ describe('Application Root & Pages SFC Integrity', () => {
       global: {
         stubs: {
           NuxtLink: { template: '<a><slot /></a>' },
+          ClientOnly: { template: '<div><slot /></div>' },
           ProviderStatusBadge: { template: '<div class="provider-status-badge-stub"></div>' }
         }
       }

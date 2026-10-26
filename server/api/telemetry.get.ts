@@ -1,41 +1,48 @@
 import { getTelemetryEngine } from '../utils/watcher';
 
 export default defineEventHandler(async (event) => {
-  setResponseHeaders(event, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive'
+  const req = event.node.req;
+  const res = event.node.res;
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+    'Access-Control-Allow-Origin': '*'
   });
+
+  if (typeof (res as any).flushHeaders === 'function') {
+    (res as any).flushHeaders();
+  }
 
   const engine = getTelemetryEngine();
-  const eventStream = createEventStream(event);
   const refreshInterval = engine.getConfig().refreshIntervalMs || 500;
 
-  let lastPayload = '';
-
-  // Push immediate initial snapshot on connection
-  try {
-    const initialSnapshots = await engine.getSnapshot();
-    lastPayload = JSON.stringify(initialSnapshots);
-    await eventStream.push(lastPayload);
-  } catch {}
-
-  const interval = setInterval(async () => {
+  const pushSnapshot = async () => {
     try {
+      if (res.writableEnded || res.destroyed) return;
       const snapshots = await engine.getSnapshot();
-      const payload = JSON.stringify(snapshots);
-      if (payload !== lastPayload) {
-        lastPayload = payload;
-        await eventStream.push(payload);
+      res.write(`data: ${JSON.stringify(snapshots)}\n\n`);
+      if (typeof (res as any).flush === 'function') {
+        (res as any).flush();
       }
-    } catch {
+    } catch {}
+  };
+
+  // Immediate push on connect
+  await pushSnapshot();
+
+  return new Promise<void>((resolve) => {
+    const cleanup = () => {
       clearInterval(interval);
-    }
-  }, refreshInterval);
+      resolve();
+    };
 
-  eventStream.onClosed(() => {
-    clearInterval(interval);
+    req.on('close', cleanup);
+    req.on('aborted', cleanup);
+    res.on('close', cleanup);
+    res.on('finish', cleanup);
+    res.on('error', cleanup);
   });
-
-  return eventStream.send();
 });

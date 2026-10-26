@@ -150,4 +150,70 @@ describe('AgentChart', () => {
     await legendButtons[0].trigger('mouseleave');
     expect(legendButtons[0].classes()).not.toContain('ring-1');
   });
+
+  // Domain analysis: process identity is ID-based even when display names collide, and each
+  // independently shaped history series remains addressable in the legend.
+  it('keeps distinct process layers and rates for different IDs with the same display name', () => {
+    const wrapper = mount(AgentChart, {
+      props: {
+        history: [{
+          timestamp: 1700000000000,
+          totalTokens: 350,
+          mainTokens: 0,
+          subagentTokens: {
+            'process-alpha': { name: 'Shared Worker', tokens: 100, color: '#111111' },
+            'process-beta': { name: 'Shared Worker', tokens: 250, color: '#222222' }
+          }
+        }],
+        color: '#06b6d4',
+        alertThreshold: 8000,
+        localMax: 350,
+        subagents: [
+          { id: 'process-alpha', name: 'Shared Worker', color: '#dc2626', currentRate: 100 },
+          { id: 'process-beta', name: 'Shared Worker', color: '#2563eb', currentRate: 250 }
+        ]
+      }
+    });
+
+    const processLegendText = wrapper.findAll('.legend-pill').slice(1).map(button => button.text());
+
+    expect(processLegendText).toEqual([
+      'Shared Worker(0.3k)',
+      'Shared Worker(0.1k)'
+    ]);
+  });
+
+  // Equivalence partitioning: valid caller-supplied colors must survive layer construction
+  // exactly, rather than being replaced by palette order or history colors.
+  it('uses the exact supplied subagent colors in separate legend layers', () => {
+    const wrapper = mount(AgentChart, {
+      props: {
+        history: [{
+          timestamp: 1700000000000,
+          totalTokens: 350,
+          mainTokens: 0,
+          subagentTokens: {
+            'process-alpha': { name: 'Shared Worker', tokens: 100, color: '#111111' },
+            'process-beta': { name: 'Shared Worker', tokens: 250, color: '#222222' }
+          }
+        }],
+        color: '#06b6d4',
+        alertThreshold: 8000,
+        localMax: 350,
+        subagents: [
+          { id: 'process-alpha', name: 'Shared Worker', color: '#dc2626', currentRate: 100 },
+          { id: 'process-beta', name: 'Shared Worker', color: '#2563eb', currentRate: 250 }
+        ]
+      }
+    });
+
+    const processLegendColors = wrapper.findAll('.legend-pill').slice(1).map(button =>
+      button.find('span').attributes('style')
+    );
+
+    expect(processLegendColors).toEqual([
+      'background-color: #2563eb;',
+      'background-color: #dc2626;'
+    ]);
+  });
 });
